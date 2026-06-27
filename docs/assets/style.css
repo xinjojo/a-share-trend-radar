@@ -94,6 +94,30 @@ h3 { font-size: 17px; }
 .metric-note { color: var(--muted); font-size: 13px; margin-top: 3px; }
 .panel { padding: 20px; margin: 18px 0; }
 .compact { margin: 0; }
+.basis-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+.basis-item {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: #fbfcfe;
+}
+.basis-item span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+.basis-item strong {
+  display: block;
+  font-size: 14px;
+  line-height: 1.45;
+}
+.subsection { margin-top: 16px; }
+.subsection h3 { margin: 0 0 10px; }
 .three-columns {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -196,6 +220,7 @@ footer a { color: var(--accent); font-weight: 700; }
   .temperature { text-align: left; }
   h1 { font-size: 28px; }
   .summary-grid, .three-columns, .sector-list, .stock-list { grid-template-columns: 1fr; }
+  .basis-grid { grid-template-columns: 1fr; }
   .metric-value { font-size: 23px; }
   table { min-width: 0; }
   thead { display: none; }

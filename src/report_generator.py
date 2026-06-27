@@ -56,10 +56,13 @@ def generate_daily_report(
         for _, row in leader_df.head(20).iterrows():
             lines.append(
                 f"- {row.get('name', '')}({row.get('code', '')})："
-                f"{row.get('board_name', '')}，龙头分 {row.get('leader_score', 0)}，"
+                f"{row.get('board_name', '')}，{row.get('pool_group', '观察池')}，"
+                f"龙头分 {row.get('leader_score', 0)}，"
                 f"close={safe_float(row.get('close')):.2f}，"
                 f"MA20={safe_float(row.get('ma20')):.2f}，"
                 f"距MA20={safe_float(row.get('distance_ma20_pct')):.2f}%，"
+                f"价格口径={row.get('price_basis', '不复权')}，"
+                f"价格校验={row.get('price_check_status', '')}，"
                 f"观察状态：{row.get('observe_status', '')}，"
                 f"失效条件：{row.get('invalid_condition', '')}"
             )
@@ -77,7 +80,8 @@ def generate_daily_report(
                 f"{row.get('observe_status', '')}，所属主线 {row.get('board_name', '')}，"
                 f"close={safe_float(row.get('close')):.2f}，"
                 f"MA20={safe_float(row.get('ma20')):.2f}，"
-                f"距MA20={safe_float(row.get('distance_ma20_pct')):.2f}%"
+                f"距MA20={safe_float(row.get('distance_ma20_pct')):.2f}%，"
+                f"价格口径={row.get('price_basis', '不复权')}"
             )
 
     lines.extend(
@@ -135,18 +139,21 @@ def _filter_research_candidates(df: pd.DataFrame) -> pd.DataFrame:
     for col, default in {
         "observe_status": "",
         "trend_status": "",
+        "pool_group": "",
         "distance_ma20_pct": 999,
         "leader_score": 0,
+        "research_priority_score": 0,
         "amount_yi": 0,
     }.items():
         if col not in out.columns:
             out[col] = default
-    out = out[~out["observe_status"].isin(["高位过热", "趋势破坏", "不适合追"])]
+    out = out[out["pool_group"] == "可研究候选"]
+    out = out[~out["observe_status"].isin(["高位过热", "趋势破坏", "不适合追", "等待回调"])]
     out = out[out["trend_status"] != "趋势破坏"]
     pullback = out["observe_status"].isin(["缩量回踩 5 日线", "缩量回踩 10 日线", "缩量回踩 20 日线"])
     distance = out["distance_ma20_pct"].map(safe_float).abs()
-    reversal = (out["observe_status"] == "放量反包") & (distance <= 12)
-    filtered = out[pullback | reversal].copy()
+    reversal = (out["observe_status"] == "放量反包") & (distance <= 25)
+    filtered = out[(pullback & (distance <= 25)) | reversal].copy()
     if filtered.empty:
         return filtered
-    return filtered.sort_values(["leader_score", "amount_yi"], ascending=[False, False])
+    return filtered.sort_values(["research_priority_score", "leader_score", "amount_yi"], ascending=[False, False, False])

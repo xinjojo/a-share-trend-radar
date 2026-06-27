@@ -54,6 +54,7 @@ def build_static_snapshot(
         "report_date": report_date,
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "market_temperature": market_temperature,
+        "data_basis": _build_data_basis(report_date, market_temperature, sector_df, leader_df),
         "index_quotes": _records(index_df),
         "sectors": _records(sector_df),
         "industry_sectors": _records(sector_pack.get("industry")),
@@ -77,10 +78,10 @@ def build_static_snapshot(
         "daily.html": render_daily_page(snapshot),
     }
     for filename, content in pages.items():
-        (output_path / filename).write_text(content, encoding="utf-8")
+        (output_path / filename).write_text(_clean_text(content), encoding="utf-8")
 
     history_file = history_dir / f"{report_date}.html"
-    history_file.write_text(render_daily_page(snapshot, is_history=True), encoding="utf-8")
+    history_file.write_text(_clean_text(render_daily_page(snapshot, is_history=True)), encoding="utf-8")
     _write_history_index(history_dir)
 
     return {
@@ -116,8 +117,10 @@ def render_index_page(snapshot: dict[str, Any]) -> str:
     """首页。"""
     temp = snapshot["market_temperature"]
     metrics = temp.get("metrics", {})
+    basis = snapshot.get("data_basis", {})
     sectors = snapshot["sectors"]
     leaders = snapshot["leaders"]
+    research_leaders, watch_leaders = _split_leaders(leaders)
     sample_warning = "" if metrics.get("is_full_market_sample", True) else f'<div class="warning">{_e(metrics.get("sample_note", "非全市场样本"))}</div>'
     top_sectors = sectors[:10]
     continuous = [s for s in sectors if s.get("category") == "持续主线"][:6]
@@ -144,6 +147,7 @@ def render_index_page(snapshot: dict[str, Any]) -> str:
       {_metric_card("成交额", f"{_fmt(metrics.get('total_amount_yi'), 0)} 亿", "全市场")}
     </section>
     {sample_warning}
+    {_data_basis_panel(basis)}
     <section class="panel">
       <h2>主要指数</h2>
       {_table(snapshot["index_quotes"], ["index_name", "price", "change_pct", "amount_yi"], {"index_name": "指数", "price": "点位", "change_pct": "涨跌幅%", "amount_yi": "成交额亿"})}
@@ -159,7 +163,8 @@ def render_index_page(snapshot: dict[str, Any]) -> str:
     </section>
     <section class="panel">
       <h2>今日可研究股票池</h2>
-      {_leader_table(leaders[:20])}
+      {_leader_group("可研究候选", research_leaders[:20])}
+      {_leader_group("高位观察/不适合追", watch_leaders[:20])}
     </section>
     """
     return _layout("A股主线雷达", "index", body)
@@ -204,6 +209,7 @@ def render_sectors_page(snapshot: dict[str, Any]) -> str:
 def render_stocks_page(snapshot: dict[str, Any]) -> str:
     """龙头股票池页。"""
     leaders = snapshot["leaders"]
+    research_leaders, watch_leaders = _split_leaders(leaders)
     body = f"""
     <section class="page-title">
       <p class="eyebrow">Leader Pool</p>
@@ -212,7 +218,8 @@ def render_stocks_page(snapshot: dict[str, Any]) -> str:
     </section>
     <section class="panel">
       <h2>股票池排名</h2>
-      {_leader_table(leaders)}
+      {_leader_group("可研究候选", research_leaders)}
+      {_leader_group("高位观察/不适合追", watch_leaders)}
     </section>
     <section class="stock-list">
       {''.join(_stock_card(stock) for stock in leaders[:40]) if leaders else _empty_state()}
@@ -293,7 +300,7 @@ def _write_history_index(history_dir: Path) -> None:
     </section>
     """
     html_text = _layout("历史快照", "history", body, root_prefix="../")
-    (history_dir / "index.html").write_text(html_text, encoding="utf-8")
+    (history_dir / "index.html").write_text(_clean_text(html_text), encoding="utf-8")
 
 
 def _metric_card(label: str, value: str, note: str) -> str:
@@ -303,6 +310,41 @@ def _metric_card(label: str, value: str, note: str) -> str:
       <div class="metric-value">{_e(value)}</div>
       <div class="metric-label">{_e(label)}</div>
       <div class="metric-note">{_e(note)}</div>
+    </div>
+    """
+
+
+def _data_basis_panel(basis: dict[str, Any]) -> str:
+    """首页数据口径说明。"""
+    items = [
+        ("数据日期", basis.get("data_date", "")),
+        ("股票池范围", basis.get("stock_pool_scope", "")),
+        ("价格口径", basis.get("price_basis", "")),
+        ("资金口径", basis.get("fund_basis", "")),
+    ]
+    return f"""
+    <section class="panel">
+      <h2>数据口径</h2>
+      <div class="basis-grid">
+        {''.join(f'<div class="basis-item"><span>{_e(label)}</span><strong>{_e(value)}</strong></div>' for label, value in items)}
+      </div>
+    </section>
+    """
+
+
+def _split_leaders(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """按股票池分组拆成主候选和高位观察。"""
+    research = [row for row in rows if row.get("pool_group") == "可研究候选"]
+    watch = [row for row in rows if row.get("pool_group") != "可研究候选"]
+    return research, watch
+
+
+def _leader_group(title: str, rows: list[dict[str, Any]]) -> str:
+    """带标题的股票池分组。"""
+    return f"""
+    <div class="subsection">
+      <h3>{_e(title)}</h3>
+      {_leader_table(rows)}
     </div>
     """
 
@@ -352,13 +394,40 @@ def _leader_table(rows: list[dict[str, Any]]) -> str:
     """股票池表。"""
     return _table(
         rows,
-        ["code", "name", "board_name", "leader_score", "price", "change_pct", "amount_yi", "ret_20d", "ret_60d", "close", "ma20", "distance_ma20_pct", "trend_status", "observe_status", "price_check_status", "invalid_condition"],
+        [
+            "pool_group",
+            "code",
+            "name",
+            "board_name",
+            "leader_score",
+            "research_priority_score",
+            "price",
+            "price_basis",
+            "quote_price",
+            "price_check_diff_pct",
+            "change_pct",
+            "amount_yi",
+            "ret_20d",
+            "ret_60d",
+            "close",
+            "ma20",
+            "distance_ma20_pct",
+            "trend_status",
+            "observe_status",
+            "price_check_status",
+            "invalid_condition",
+        ],
         {
+            "pool_group": "分组",
             "code": "代码",
             "name": "名称",
             "board_name": "主线",
             "leader_score": "龙头分",
+            "research_priority_score": "研究优先级",
             "price": "价格",
+            "price_basis": "价格口径",
+            "quote_price": "行情价",
+            "price_check_diff_pct": "校验偏差%",
             "change_pct": "涨跌幅%",
             "amount_yi": "成交额亿",
             "ret_20d": "20日%",
@@ -438,9 +507,11 @@ def _stock_card(row: dict[str, Any]) -> str:
         <span class="badge">{_e(row.get("observe_status", ""))}</span>
       </div>
       <dl>
+        <div><dt>分组</dt><dd>{_e(row.get("pool_group", ""))}</dd></div>
         <div><dt>所属主线</dt><dd>{_e(row.get("board_name", ""))}</dd></div>
         <div><dt>龙头分</dt><dd>{_fmt(row.get("leader_score"), 1)}</dd></div>
         <div><dt>成交额</dt><dd>{_fmt(row.get("amount_yi"), 1)} 亿</dd></div>
+        <div><dt>价格口径</dt><dd>{_e(row.get("price_basis", "不复权"))}</dd></div>
         <div><dt>Close / MA20</dt><dd>{_fmt(row.get("close"), 2)} / {_fmt(row.get("ma20"), 2)}</dd></div>
         <div><dt>距 MA20</dt><dd>{_fmt(row.get("distance_ma20_pct"), 2)}%</dd></div>
         <div><dt>趋势</dt><dd>{_e(row.get("trend_status", ""))}</dd></div>
@@ -514,6 +585,50 @@ def _records(df: pd.DataFrame | None) -> list[dict[str, Any]]:
     return json.loads(clean.to_json(orient="records", force_ascii=False))
 
 
+def _clean_text(content: str) -> str:
+    """写静态文件前去掉行尾空白。"""
+    return "\n".join(line.rstrip() for line in content.splitlines()) + "\n"
+
+
+def _build_data_basis(
+    report_date: str,
+    market_temperature: dict[str, Any],
+    sector_df: pd.DataFrame | None,
+    leader_df: pd.DataFrame | None,
+) -> dict[str, str]:
+    """生成页面和 JSON 可追溯的数据口径说明。"""
+    metrics = market_temperature.get("metrics", {})
+    data_date = report_date
+    if leader_df is not None and not leader_df.empty and "last_trade_date" in leader_df.columns:
+        dates = [item for item in leader_df["last_trade_date"].dropna().astype(str).tolist() if item]
+        if dates:
+            data_date = max(dates)
+    price_basis = _unique_text(leader_df, "price_basis") or "不复权"
+    ma_basis = _unique_text(leader_df, "ma_basis") or price_basis
+    fund_basis = _unique_text(sector_df, "flow_score_label") or "成交活跃度代理评分"
+    sample_note = str(metrics.get("sample_note", "全市场样本"))
+    return {
+        "data_date": data_date,
+        "stock_pool_scope": (
+            f"{sample_note}；龙头池来自强势行业/概念成分股，按股票代码去重并合并多个主线。"
+        ),
+        "price_basis": f"{price_basis} 最新日K收盘价；均线口径：{ma_basis}；实时行情仅用于3%偏差校验。",
+        "fund_basis": f"{fund_basis}；真实资金流不可用时不写资金流入，使用成交活跃度代理评分。",
+    }
+
+
+def _unique_text(df: pd.DataFrame | None, column: str) -> str:
+    """提取 DataFrame 某列的非空唯一文本。"""
+    if df is None or df.empty or column not in df.columns:
+        return ""
+    values = []
+    for value in df[column].dropna().astype(str).tolist():
+        text = value.strip()
+        if text and text not in values:
+            values.append(text)
+    return " / ".join(values)
+
+
 def _collect_sources(*frames: pd.DataFrame | None) -> list[str]:
     """收集数据源标签。"""
     sources: set[str] = set()
@@ -530,7 +645,27 @@ def _format_cell(col: str, value: Any) -> str:
     if col in {"change_pct", "ret_3d", "ret_5d", "ret_10d", "ret_20d", "ret_60d", "up_ratio"}:
         multiplier = 100 if col == "up_ratio" and safe_float(value) <= 1 else 1
         return f"{safe_float(value) * multiplier:.2f}"
-    if col in {"score", "leader_score", "sector_score", "price", "amount_yi", "amount_ratio_20", "rank_stability_score", "flow_score", "close", "ma20", "ma5", "ma10", "ma60", "distance_ma20_pct"}:
+    if col in {
+        "score",
+        "leader_score",
+        "research_priority_score",
+        "sector_score",
+        "price",
+        "quote_price",
+        "current_price",
+        "board_price",
+        "price_check_diff_pct",
+        "amount_yi",
+        "amount_ratio_20",
+        "rank_stability_score",
+        "flow_score",
+        "close",
+        "ma20",
+        "ma5",
+        "ma10",
+        "ma60",
+        "distance_ma20_pct",
+    }:
         return _fmt(value, 2)
     return _e(value)
 
@@ -660,6 +795,30 @@ h3 { font-size: 17px; }
 .metric-note { color: var(--muted); font-size: 13px; margin-top: 3px; }
 .panel { padding: 20px; margin: 18px 0; }
 .compact { margin: 0; }
+.basis-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+.basis-item {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: #fbfcfe;
+}
+.basis-item span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+.basis-item strong {
+  display: block;
+  font-size: 14px;
+  line-height: 1.45;
+}
+.subsection { margin-top: 16px; }
+.subsection h3 { margin: 0 0 10px; }
 .three-columns {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -762,6 +921,7 @@ footer a { color: var(--accent); font-weight: 700; }
   .temperature { text-align: left; }
   h1 { font-size: 28px; }
   .summary-grid, .three-columns, .sector-list, .stock-list { grid-template-columns: 1fr; }
+  .basis-grid { grid-template-columns: 1fr; }
   .metric-value { font-size: 23px; }
   table { min-width: 0; }
   thead { display: none; }

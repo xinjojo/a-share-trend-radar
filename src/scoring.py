@@ -232,4 +232,25 @@ def score_leader_candidates(df: pd.DataFrame) -> pd.DataFrame:
         + out["trend_score"] * 0.25
         + out["mcap_score"] * 0.15
     ).map(lambda x: round(clamp(safe_float(x)), 1))
+    status_bonus = out.get("observe_status", pd.Series("", index=out.index)).map(
+        {
+            "缩量回踩 5 日线": 16,
+            "缩量回踩 10 日线": 15,
+            "缩量回踩 20 日线": 14,
+            "放量反包": 10,
+            "等待回调": -12,
+            "不适合追": -20,
+            "高位过热": -35,
+            "趋势破坏": -45,
+        }
+    ).fillna(0)
+    distance = out.get("distance_ma20_pct", pd.Series(0, index=out.index)).map(safe_float)
+    trend_status = out.get("trend_status", pd.Series("", index=out.index)).astype(str)
+    pool_group = out.get("pool_group", pd.Series("", index=out.index)).astype(str)
+    distance_bonus = ((distance >= 0) & (distance <= 15) & (trend_status == "多头趋势")).astype(int) * 14
+    distance_penalty = (distance > 25).astype(int) * 18 + (distance > 35).astype(int) * 22
+    group_penalty = (pool_group == "高位观察/不适合追").astype(int) * 8
+    out["research_priority_score"] = (
+        out["leader_score"] + status_bonus + distance_bonus - distance_penalty - group_penalty
+    ).map(lambda x: round(clamp(safe_float(x)), 1))
     return out.sort_values("leader_score", ascending=False).reset_index(drop=True)

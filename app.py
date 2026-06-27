@@ -11,6 +11,7 @@ from src.report_generator import generate_daily_report
 from src.scoring import score_market_temperature
 from src.sector_radar import build_sector_radar
 from src.stock_radar import build_leader_pool
+from src.utils import today_str
 
 
 st.set_page_config(page_title="A股主线雷达", layout="wide")
@@ -51,6 +52,28 @@ st.info(temperature.get("explanation", EMPTY_HINT))
 if not metrics.get("is_full_market_sample", True):
     st.warning(metrics.get("sample_note", "非全市场样本"))
 
+data_date = today_str()
+if not leader_df.empty and "last_trade_date" in leader_df.columns:
+    dates = leader_df["last_trade_date"].dropna().astype(str)
+    dates = dates[dates != ""]
+    if not dates.empty:
+        data_date = dates.max()
+price_basis_text = "不复权"
+if not leader_df.empty and "price_basis" in leader_df.columns:
+    basis = [item for item in leader_df["price_basis"].dropna().astype(str).unique().tolist() if item]
+    price_basis_text = " / ".join(basis) if basis else "不复权"
+fund_basis_text = "成交活跃度代理评分"
+sector_df = sector_pack["all"]
+if sector_df is not None and not sector_df.empty and "flow_score_label" in sector_df.columns:
+    labels = [item for item in sector_df["flow_score_label"].dropna().astype(str).unique().tolist() if item]
+    fund_basis_text = " / ".join(labels) if labels else fund_basis_text
+st.caption(
+    f"数据口径：数据日期 {data_date}；股票池范围：{metrics.get('sample_note', '全市场样本')}，"
+    "龙头池来自强势行业/概念成分股并按股票代码去重；"
+    f"价格口径：{price_basis_text} 最新日K收盘价，实时行情仅用于偏差校验；"
+    f"资金口径：{fund_basis_text}。"
+)
+
 idx_col, dist_col = st.columns([1, 1])
 with idx_col:
     st.subheader("主要指数")
@@ -71,7 +94,6 @@ with dist_col:
         fig.update_layout(height=280, margin=dict(l=10, r=10, t=25, b=10))
         st.plotly_chart(fig, use_container_width=True)
 
-sector_df = sector_pack["all"]
 st.subheader("今日最强主线 Top 10")
 if sector_df.empty:
     st.warning(EMPTY_HINT)
@@ -127,12 +149,17 @@ if leader_df.empty:
     st.warning(EMPTY_HINT)
 else:
     show_cols = [
+        "pool_group",
         "code",
         "name",
         "board_name",
         "leader_score",
+        "research_priority_score",
         "sector_category",
         "price",
+        "price_basis",
+        "quote_price",
+        "price_check_diff_pct",
         "change_pct",
         "amount_yi",
         "ret_20d",
@@ -144,7 +171,22 @@ else:
         "observe_status",
         "price_check_status",
     ]
-    st.dataframe(leader_df[show_cols].round(2), use_container_width=True, hide_index=True)
+    show_cols = [col for col in show_cols if col in leader_df.columns]
+    if "pool_group" not in leader_df.columns:
+        leader_df = leader_df.assign(pool_group="高位观察/不适合追")
+    research_df = leader_df[leader_df["pool_group"] == "可研究候选"]
+    watch_df = leader_df[leader_df["pool_group"] != "可研究候选"]
+    pool_tab1, pool_tab2 = st.tabs(["可研究候选", "高位观察/不适合追"])
+    with pool_tab1:
+        if research_df.empty:
+            st.caption("暂无符合克制条件的可研究候选。")
+        else:
+            st.dataframe(research_df[show_cols].round(2), use_container_width=True, hide_index=True)
+    with pool_tab2:
+        if watch_df.empty:
+            st.caption("暂无高位观察标的。")
+        else:
+            st.dataframe(watch_df[show_cols].round(2), use_container_width=True, hide_index=True)
 
 with st.expander("生成今日 Markdown 日报", expanded=False):
     report = generate_daily_report(temperature, sector_df, leader_df)

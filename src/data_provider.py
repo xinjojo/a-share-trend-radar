@@ -49,7 +49,7 @@ logger = setup_logger(__name__)
 
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
 DATACENTER_URL = "https://datacenter-web.eastmoney.com/api/data/v1/get"
-CACHE_SCHEMA_VERSION = "2026-06-28-market-and-scoring-v2"
+CACHE_SCHEMA_VERSION = "2026-06-28-price-basis-and-pool-v1"
 
 EM_SESSION = requests.Session()
 EM_SESSION.headers.update({"User-Agent": UA})
@@ -466,6 +466,9 @@ class AStockDataProvider:
                 df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
         df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
         df["data_source"] = "a-stock-data:mootdx"
+        df["price_basis"] = "不复权"
+        df["ma_basis"] = "不复权"
+        df["adjustment"] = ""
         return df
 
     def _stock_history_baidu(self, code: str, limit: int = 120) -> pd.DataFrame:
@@ -517,6 +520,9 @@ class AStockDataProvider:
         if "date" in df.columns:
             df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.strftime("%Y-%m-%d")
         df["data_source"] = "a-stock-data:baidu_kline"
+        df["price_basis"] = "不复权"
+        df["ma_basis"] = "不复权"
+        df["adjustment"] = ""
         return df.tail(limit).reset_index(drop=True)
 
     def _fallback_ak_stock_history(self, code: str, limit: int = 120) -> pd.DataFrame:
@@ -540,7 +546,13 @@ class AStockDataProvider:
                 "涨跌幅": "change_pct",
             }
         )
+        for col in ["open", "close", "high", "low", "volume", "amount", "change_pct"]:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
         df["data_source"] = "fallback:akshare"
+        df["price_basis"] = "不复权"
+        df["ma_basis"] = "不复权"
+        df["adjustment"] = ""
         return df.tail(limit).reset_index(drop=True)
 
     @file_cache(ttl_seconds=MARKET_CACHE_TTL_SECONDS)

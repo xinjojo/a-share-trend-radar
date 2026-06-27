@@ -31,12 +31,17 @@ if leader_df.empty:
     st.warning(EMPTY_HINT)
 else:
     cols = [
+        "pool_group",
         "code",
         "name",
         "board_name",
         "leader_score",
+        "research_priority_score",
         "sector_score",
         "price",
+        "price_basis",
+        "quote_price",
+        "price_check_diff_pct",
         "change_pct",
         "amount_yi",
         "ret_20d",
@@ -52,7 +57,22 @@ else:
         "price_check_status",
         "invalid_condition",
     ]
-    st.dataframe(leader_df[cols].round(2), use_container_width=True, hide_index=True)
+    cols = [col for col in cols if col in leader_df.columns]
+    if "pool_group" not in leader_df.columns:
+        leader_df = leader_df.assign(pool_group="高位观察/不适合追")
+    research_df = leader_df[leader_df["pool_group"] == "可研究候选"]
+    watch_df = leader_df[leader_df["pool_group"] != "可研究候选"]
+    tab1, tab2 = st.tabs(["可研究候选", "高位观察/不适合追"])
+    with tab1:
+        if research_df.empty:
+            st.caption("暂无符合克制条件的可研究候选。")
+        else:
+            st.dataframe(research_df[cols].round(2), use_container_width=True, hide_index=True)
+    with tab2:
+        if watch_df.empty:
+            st.caption("暂无高位观察标的。")
+        else:
+            st.dataframe(watch_df[cols].round(2), use_container_width=True, hide_index=True)
 
 default_code = leader_df.iloc[0]["code"] if not leader_df.empty else "600519"
 code = st.text_input("输入股票代码查看详情", value=str(default_code))
@@ -82,6 +102,9 @@ st.subheader("K线、均线与成交额")
 if history is None or history.empty:
     st.warning(EMPTY_HINT)
 else:
+    price_basis = history["price_basis"].iloc[-1] if "price_basis" in history.columns else "不复权"
+    ma_basis = history["ma_basis"].iloc[-1] if "ma_basis" in history.columns else price_basis
+    st.caption(f"价格口径：{price_basis}；均线口径：{ma_basis}。")
     fig = go.Figure()
     fig.add_trace(
         go.Candlestick(

@@ -50,6 +50,10 @@ def latest_trend_flags(df: pd.DataFrame) -> dict:
             "amount_ratio_20": 0.0,
             "ret_20d": 0.0,
             "ret_60d": 0.0,
+            "date": "",
+            "price_basis": "",
+            "ma_basis": "",
+            "adjustment": "",
         }
     enriched = add_moving_averages(df)
     last = enriched.iloc[-1]
@@ -72,6 +76,10 @@ def latest_trend_flags(df: pd.DataFrame) -> dict:
         "ma10": ma10,
         "ma20": ma20,
         "ma60": ma60,
+        "date": str(last.get("date", "")),
+        "price_basis": str(last.get("price_basis", "")),
+        "ma_basis": str(last.get("ma_basis", last.get("price_basis", ""))),
+        "adjustment": str(last.get("adjustment", "")),
     }
 
 
@@ -101,9 +109,12 @@ def observe_buy_point(df: pd.DataFrame) -> str:
     ma20 = safe_float(last.get("ma20"))
     amount_ratio = safe_float(last.get("amount_ratio_20") or last.get("volume_ratio_20"), 1.0)
     ret_20d = safe_float(last.get("ret_20d"))
+    distance_ma20_pct = (close / ma20 - 1) * 100 if ma20 > 0 and close > 0 else 0.0
 
     if ma20 > 0 and close < ma20:
         return "趋势破坏"
+    if distance_ma20_pct > 25:
+        return "高位过热"
     if ret_20d >= 35 and close > ma5 * 1.08:
         return "高位过热"
     if ma5 > 0 and low <= ma5 <= close and amount_ratio <= 1.2:
@@ -145,4 +156,3 @@ def trend_score_from_flags(flags: dict) -> float:
     score += 20 if flags.get("above_ma60") else 0
     score += 20 if flags.get("ma_bull") else 0
     return clamp(score)
-
