@@ -31,10 +31,12 @@ metrics = temperature.get("metrics", {})
 cols = st.columns(5)
 cols[0].metric("温度", f"{temperature.get('score', 0)} / 100")
 cols[1].metric("风险偏好", temperature.get("risk_preference", "未知"))
-cols[2].metric("上涨家数", metrics.get("up_count", 0))
-cols[3].metric("下跌家数", metrics.get("down_count", 0))
+cols[2].metric("统计股票数", metrics.get("sample_count", metrics.get("total", 0)))
+cols[3].metric("上涨/下跌", f"{metrics.get('up_count', 0)} / {metrics.get('down_count', 0)}")
 cols[4].metric("成交额", f"{metrics.get('total_amount_yi', 0):,.0f} 亿")
 st.info(temperature.get("explanation", EMPTY_HINT))
+if not metrics.get("is_full_market_sample", True):
+    st.warning(metrics.get("sample_note", "非全市场样本"))
 
 left, right = st.columns([1, 1])
 with left:
@@ -61,4 +63,3 @@ if market_df.empty:
 else:
     cols = ["code", "name", "industry", "price", "change_pct", "amount_yi", "turnover_pct", "vol_ratio", "mcap_yi"]
     st.dataframe(market_df.sort_values("amount_yi", ascending=False)[cols].head(50).round(2), use_container_width=True, hide_index=True)
-

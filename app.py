@@ -41,12 +41,15 @@ with st.spinner("正在扫描市场温度、主线板块和股票池..."):
     market_df, index_df, temperature, sector_pack, leader_df = load_dashboard(include_concepts, max_boards)
 
 metrics = temperature.get("metrics", {})
-col1, col2, col3, col4 = st.columns(4)
+col1, col2, col3, col4, col5 = st.columns(5)
 col1.metric("市场温度", f"{temperature.get('score', 0)} / 100", temperature.get("risk_preference", "未知"))
-col2.metric("上涨/下跌", f"{metrics.get('up_count', 0)} / {metrics.get('down_count', 0)}")
-col3.metric("涨停/跌停", f"{metrics.get('limit_up', 0)} / {metrics.get('limit_down', 0)}")
-col4.metric("成交额", f"{metrics.get('total_amount_yi', 0):,.0f} 亿")
+col2.metric("统计股票数", f"{metrics.get('sample_count', metrics.get('total', 0))}")
+col3.metric("上涨/下跌", f"{metrics.get('up_count', 0)} / {metrics.get('down_count', 0)}")
+col4.metric("涨停/跌停", f"{metrics.get('limit_up', 0)} / {metrics.get('limit_down', 0)}")
+col5.metric("成交额", f"{metrics.get('total_amount_yi', 0):,.0f} 亿")
 st.info(temperature.get("explanation", EMPTY_HINT))
+if not metrics.get("is_full_market_sample", True):
+    st.warning(metrics.get("sample_note", "非全市场样本"))
 
 idx_col, dist_col = st.columns([1, 1])
 with idx_col:
@@ -76,9 +79,12 @@ else:
     show_cols = [
         "rank",
         "board_name",
-        "board_type",
+        "board_layer",
         "category",
         "score",
+        "rank_stability_score",
+        "flow_score_label",
+        "flow_score",
         "change_pct",
         "ret_5d",
         "ret_10d",
@@ -89,7 +95,7 @@ else:
     st.dataframe(sector_df[show_cols].round(2).head(10), use_container_width=True, hide_index=True)
 
 st.subheader("主线状态")
-tab1, tab2, tab3 = st.tabs(["持续主线", "短线热点", "退潮板块"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["持续主线", "短线热点", "退潮板块", "行业/概念分层", "短线情绪观察"])
 for tab, name in [(tab1, "持续主线"), (tab2, "短线热点"), (tab3, "退潮板块")]:
     with tab:
         data = sector_pack[name]
@@ -97,10 +103,24 @@ for tab, name in [(tab1, "持续主线"), (tab2, "短线热点"), (tab3, "退潮
             st.caption("暂无板块进入该分类。")
         else:
             st.dataframe(
-                data[["board_name", "score", "change_pct", "ret_5d", "ret_10d", "top_stocks"]].round(2),
+                data[["board_name", "board_layer", "score", "rank_stability_score", "change_pct", "ret_5d", "ret_10d", "top_stocks"]].round(2),
                 use_container_width=True,
                 hide_index=True,
             )
+with tab4:
+    layer = st.radio("分层", ["行业板块", "概念板块"], horizontal=True)
+    data = sector_pack["industry"] if layer == "行业板块" else sector_pack["concept"]
+    if data.empty:
+        st.caption("暂无数据。")
+    else:
+        st.dataframe(data[show_cols].round(2), use_container_width=True, hide_index=True)
+with tab5:
+    emotion_df = sector_pack.get("emotion")
+    if emotion_df is None or emotion_df.empty:
+        st.caption("暂无短线情绪标签。")
+    else:
+        cols = ["board_name", "change_pct", "amount_yi", "up_count", "down_count", "leader", "emotion_reason"]
+        st.dataframe(emotion_df[[c for c in cols if c in emotion_df.columns]].round(2), use_container_width=True, hide_index=True)
 
 st.subheader("今日可研究股票池")
 if leader_df.empty:
@@ -117,8 +137,12 @@ else:
         "amount_yi",
         "ret_20d",
         "ret_60d",
+        "close",
+        "ma20",
+        "distance_ma20_pct",
         "trend_status",
         "observe_status",
+        "price_check_status",
     ]
     st.dataframe(leader_df[show_cols].round(2), use_container_width=True, hide_index=True)
 

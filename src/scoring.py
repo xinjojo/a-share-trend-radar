@@ -29,6 +29,22 @@ def score_market_temperature(market_df: pd.DataFrame, index_df: pd.DataFrame) ->
         }
 
     total = len(market_df)
+    sample_count = int(market_df.get("sample_count", pd.Series([total])).iloc[0]) if "sample_count" in market_df else total
+    expected_count = (
+        int(market_df.get("sample_expected_count", pd.Series([total])).iloc[0])
+        if "sample_expected_count" in market_df
+        else total
+    )
+    is_full_market_sample = (
+        bool(market_df.get("is_full_market_sample", pd.Series([True])).iloc[0])
+        if "is_full_market_sample" in market_df
+        else True
+    )
+    sample_note = (
+        str(market_df.get("sample_note", pd.Series(["全市场样本"])).iloc[0])
+        if "sample_note" in market_df
+        else "全市场样本"
+    )
     up_count = int((market_df["change_pct"] > 0).sum())
     down_count = int((market_df["change_pct"] < 0).sum())
     flat_count = total - up_count - down_count
@@ -71,6 +87,7 @@ def score_market_temperature(market_df: pd.DataFrame, index_df: pd.DataFrame) ->
         risk = "过热"
 
     explanation = (
+        f"本次参与统计 {sample_count} 只股票（{sample_note}）；"
         f"上涨 {up_count} 家、下跌 {down_count} 家、平盘 {flat_count} 家；"
         f"涨停约 {limit_up} 家、跌停约 {limit_down} 家；"
         f"全市场成交额约 {total_amount_yi:,.0f} 亿元，主要指数平均涨跌幅 {index_change:.2f}%。"
@@ -81,6 +98,10 @@ def score_market_temperature(market_df: pd.DataFrame, index_df: pd.DataFrame) ->
         "explanation": explanation,
         "metrics": {
             "total": total,
+            "sample_count": sample_count,
+            "sample_expected_count": expected_count,
+            "is_full_market_sample": is_full_market_sample,
+            "sample_note": sample_note,
             "up_count": up_count,
             "down_count": down_count,
             "flat_count": flat_count,
@@ -100,17 +121,36 @@ def score_sector_dataframe(df: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
     out = df.copy()
 
-    # 资金持续性：优先使用真实资金流；若没有，sector_radar 会提供 signed_amount 代理。
-    out["fund_continuity_score"] = (
-        _rank_score(out.get("fund_3d", pd.Series(index=out.index)), True) * 0.34
-        + _rank_score(out.get("fund_5d", pd.Series(index=out.index)), True) * 0.33
-        + _rank_score(out.get("fund_10d", pd.Series(index=out.index)), True) * 0.33
+    ret_rank_3 = _rank_score(out.get("ret_3d", pd.Series(index=out.index)), True)
+    ret_rank_5 = _rank_score(out.get("ret_5d", pd.Series(index=out.index)), True)
+    ret_rank_10 = _rank_score(out.get("ret_10d", pd.Series(index=out.index)), True)
+    amount_rank_3 = _rank_score(out.get("amount_3d", pd.Series(index=out.index)), True)
+    amount_rank_5 = _rank_score(out.get("amount_5d", pd.Series(index=out.index)), True)
+    amount_rank_10 = _rank_score(out.get("amount_10d", pd.Series(index=out.index)), True)
+
+    rank_matrix = pd.concat([ret_rank_3, ret_rank_5, ret_rank_10, amount_rank_3, amount_rank_5, amount_rank_10], axis=1)
+    out["rank_stability_score"] = (
+        rank_matrix.mean(axis=1) - rank_matrix.std(axis=1).fillna(0) * 0.35
+    ).map(lambda x: clamp(safe_float(x)))
+
+    out["flow_score"] = (
+        _rank_score(out.get("activity_3d", pd.Series(index=out.index)), True) * 0.34
+        + _rank_score(out.get("activity_5d", pd.Series(index=out.index)), True) * 0.33
+        + _rank_score(out.get("activity_10d", pd.Series(index=out.index)), True) * 0.33
+    )
+    if "flow_score_label" not in out.columns:
+        out["flow_score_label"] = "成交活跃度代理评分"
+    if "flow_score_type" not in out.columns:
+        out["flow_score_type"] = "proxy"
+
+    out["amount_expansion_score"] = out.get("amount_ratio_20", pd.Series(0, index=out.index)).map(
+        lambda x: clamp(safe_float(x) / 2.5 * 100)
     )
     out["turnover_activity_score"] = (
         _rank_score(out.get("amount_3d", pd.Series(index=out.index)), True) * 0.25
         + _rank_score(out.get("amount_5d", pd.Series(index=out.index)), True) * 0.25
         + _rank_score(out.get("amount_10d", pd.Series(index=out.index)), True) * 0.25
-        + out.get("amount_ratio_20", pd.Series(0, index=out.index)).map(lambda x: clamp(safe_float(x) / 2.5 * 100)) * 0.25
+        + out["amount_expansion_score"] * 0.25
     )
 
     trend_base = (
@@ -138,11 +178,12 @@ def score_sector_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     )
 
     out["score"] = (
-        out["fund_continuity_score"] * 0.30
-        + out["turnover_activity_score"] * 0.20
+        out["rank_stability_score"] * 0.22
+        + out["flow_score"] * 0.18
         + out["trend_strength_score"] * 0.20
         + out["money_effect_score"] * 0.15
         + out["leader_concentration_score"] * 0.10
+        + out["amount_expansion_score"] * 0.10
         - out["overheat_risk_score"] * 0.05
     ).map(lambda x: round(clamp(safe_float(x)), 1))
 

@@ -14,6 +14,24 @@ from src.utils import safe_float, safe_int, setup_logger
 logger = setup_logger(__name__)
 
 
+EMOTION_KEYWORDS = (
+    "昨日",
+    "今日涨停",
+    "涨停",
+    "跌停",
+    "连板",
+    "首板",
+    "二板",
+    "三板",
+    "打板",
+    "炸板",
+    "晋级",
+    "高标",
+    "强势股",
+    "情绪",
+)
+
+
 def build_sector_radar(
     provider: AStockDataProvider,
     max_boards: int = BOARD_ANALYSIS_LIMIT,
@@ -21,14 +39,27 @@ def build_sector_radar(
 ) -> dict[str, pd.DataFrame]:
     """扫描行业/概念板块，输出持续主线、短线热点、退潮板块。"""
     industry_df = provider.get_industry_boards()
-    frames = [industry_df]
+    industry_df = _normalize_board_layer(industry_df, "industry")
+    concept_theme_df = pd.DataFrame()
+    emotion_df = pd.DataFrame()
     if include_concepts:
         concept_df = provider.get_concept_boards()
-        frames.append(concept_df)
+        concept_df = _normalize_board_layer(concept_df, "concept")
+        concept_theme_df, emotion_df = _split_concept_and_emotion(concept_df)
+
+    frames = [industry_df, concept_theme_df]
     board_df = pd.concat([df for df in frames if df is not None and not df.empty], ignore_index=True)
     if board_df.empty:
         empty = pd.DataFrame()
-        return {"all": empty, "持续主线": empty, "短线热点": empty, "退潮板块": empty}
+        return {
+            "all": empty,
+            "industry": empty,
+            "concept": empty,
+            "emotion": emotion_df if emotion_df is not None else empty,
+            "持续主线": empty,
+            "短线热点": empty,
+            "退潮板块": empty,
+        }
 
     # 兼顾涨幅和成交额，避免只扫到单日脉冲。
     candidates = (
@@ -58,10 +89,43 @@ def build_sector_radar(
     scored = score_sector_dataframe(metrics_df)
     return {
         "all": scored,
+        "industry": scored[scored["board_layer"] == "industry"].reset_index(drop=True) if not scored.empty else scored,
+        "concept": scored[scored["board_layer"] == "concept"].reset_index(drop=True) if not scored.empty else scored,
+        "emotion": emotion_df.reset_index(drop=True) if emotion_df is not None and not emotion_df.empty else pd.DataFrame(),
         "持续主线": scored[scored["category"] == "持续主线"].reset_index(drop=True) if not scored.empty else scored,
         "短线热点": scored[scored["category"] == "短线热点"].reset_index(drop=True) if not scored.empty else scored,
         "退潮板块": scored[scored["category"] == "退潮板块"].reset_index(drop=True) if not scored.empty else scored,
     }
+
+
+def _normalize_board_layer(df: pd.DataFrame, layer: str) -> pd.DataFrame:
+    """统一板块分层字段。"""
+    if df is None or df.empty:
+        return pd.DataFrame()
+    out = df.copy()
+    out["board_layer"] = layer
+    return out
+
+
+def _split_concept_and_emotion(concept_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """把概念板块拆成真正概念和短线情绪标签。"""
+    if concept_df is None or concept_df.empty:
+        return pd.DataFrame(), pd.DataFrame()
+    out = concept_df.copy()
+    names = out["board_name"].astype(str)
+    mask = names.map(is_emotion_board_name)
+    emotion = out[mask].copy()
+    if not emotion.empty:
+        emotion["board_layer"] = "emotion"
+        emotion["emotion_reason"] = "短线情绪标签，不参与主线行业/概念排名"
+    concept = out[~mask].copy()
+    return concept, emotion
+
+
+def is_emotion_board_name(name: str) -> bool:
+    """识别昨日涨停、连板、打板等短线情绪标签。"""
+    text = str(name)
+    return any(keyword in text for keyword in EMOTION_KEYWORDS)
 
 
 def _build_board_metrics(board: pd.Series, hist: pd.DataFrame, constituents: pd.DataFrame) -> dict:
@@ -78,10 +142,10 @@ def _build_board_metrics(board: pd.Series, hist: pd.DataFrame, constituents: pd.
     ret_5d = _period_return(enriched, 5)
     ret_10d = _period_return(enriched, 10)
 
-    # MVP 中板块资金流若无法直接取到，使用“成交额 * 阶段涨幅”的符号代理。
-    fund_3d = amount_3d * ret_3d / 100
-    fund_5d = amount_5d * ret_5d / 100
-    fund_10d = amount_10d * ret_10d / 100
+    # 真实板块资金流不可用时，只计算成交活跃度代理，不写作资金流入。
+    activity_3d = amount_3d * max(ret_3d + 8, 0) / 100
+    activity_5d = amount_5d * max(ret_5d + 8, 0) / 100
+    activity_10d = amount_10d * max(ret_10d + 8, 0) / 100
 
     up_count = safe_int(board.get("up_count"))
     down_count = safe_int(board.get("down_count"))
@@ -107,15 +171,18 @@ def _build_board_metrics(board: pd.Series, hist: pd.DataFrame, constituents: pd.
         "board_code": board_code,
         "board_name": board_name,
         "board_type": board.get("board_type", ""),
+        "board_layer": board.get("board_layer", board.get("board_type", "")),
         "change_pct": safe_float(board.get("change_pct")),
         "amount_yi": safe_float(board.get("amount_yi")),
         "amount_3d": amount_3d,
         "amount_5d": amount_5d,
         "amount_10d": amount_10d,
-        "fund_3d": fund_3d,
-        "fund_5d": fund_5d,
-        "fund_10d": fund_10d,
-        "fund_source": "signed_amount_proxy",
+        "activity_3d": activity_3d,
+        "activity_5d": activity_5d,
+        "activity_10d": activity_10d,
+        "flow_score_type": "proxy",
+        "flow_score_label": "成交活跃度代理评分",
+        "real_flow_available": False,
         "ret_3d": ret_3d,
         "ret_5d": ret_5d,
         "ret_10d": ret_10d,
@@ -167,4 +234,3 @@ def get_board_detail(provider: AStockDataProvider, board_code: str, board_name: 
         "fund_flow": fund,
         "constituents": constituents,
     }
-

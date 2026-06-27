@@ -26,9 +26,11 @@ from config import (
     CACHE_DIR,
     CACHE_TTL_SECONDS,
     EM_MIN_INTERVAL,
+    FULL_MARKET_MIN_COUNT,
     HISTORY_CACHE_TTL_SECONDS,
     MARKET_CACHE_TTL_SECONDS,
     MARKET_MAX_PAGES,
+    MARKET_PAGE_SIZE,
     REQUEST_TIMEOUT,
 )
 from src.utils import (
@@ -47,6 +49,7 @@ logger = setup_logger(__name__)
 
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
 DATACENTER_URL = "https://datacenter-web.eastmoney.com/api/data/v1/get"
+CACHE_SCHEMA_VERSION = "2026-06-28-market-and-scoring-v2"
 
 EM_SESSION = requests.Session()
 EM_SESSION.headers.update({"User-Agent": UA})
@@ -78,7 +81,7 @@ def file_cache(ttl_seconds: int = CACHE_TTL_SECONDS) -> Callable:
         def wrapper(*args: Any, refresh: bool = False, **kwargs: Any) -> Any:
             key_args = args[1:] if args else args
             payload = json.dumps(
-                {"func": func.__name__, "args": key_args, "kwargs": kwargs},
+                {"version": CACHE_SCHEMA_VERSION, "func": func.__name__, "args": key_args, "kwargs": kwargs},
                 ensure_ascii=False,
                 sort_keys=True,
                 default=str,
@@ -182,9 +185,11 @@ class AStockDataProvider:
         max_pages: int = 1,
         sort_columns: str = "f3",
         sort_types: str = "-1",
-    ) -> list[dict]:
+        return_total: bool = False,
+    ) -> list[dict] | tuple[list[dict], int]:
         """东财 clist 通用分页查询。"""
         rows: list[dict] = []
+        source_total = 0
         url = "https://push2.eastmoney.com/api/qt/clist/get"
         for page in range(1, max_pages + 1):
             params = {
@@ -209,8 +214,11 @@ class AStockDataProvider:
                 break
             rows.extend(items)
             total = safe_int(data.get("total"), 0)
+            source_total = total or source_total
             if total and len(rows) >= total:
                 break
+        if return_total:
+            return rows, source_total
         return rows
 
     def _normalize_quote_rows(self, items: list[dict]) -> pd.DataFrame:
@@ -264,6 +272,32 @@ class AStockDataProvider:
             )
         return add_limit_flags(df)
 
+    def _attach_market_sample_metadata(
+        self,
+        df: pd.DataFrame,
+        source_total: int = 0,
+        source_name: str = "a-stock-data:eastmoney_clist",
+    ) -> pd.DataFrame:
+        """给全市场行情附加样本完整性元数据。"""
+        if df is None or df.empty:
+            return df
+        out = df.copy()
+        sample_count = len(out)
+        expected_count = max(source_total, FULL_MARKET_MIN_COUNT)
+        is_full = sample_count >= min(expected_count, FULL_MARKET_MIN_COUNT)
+        note = "全市场样本" if is_full else "非全市场样本"
+        if source_total and sample_count < source_total:
+            note = f"非全市场样本：数据源声明 {source_total} 只，本次仅返回 {sample_count} 只"
+        elif sample_count < FULL_MARKET_MIN_COUNT:
+            note = f"非全市场样本：本次仅返回 {sample_count} 只，低于全市场阈值 {FULL_MARKET_MIN_COUNT} 只"
+        out["sample_count"] = sample_count
+        out["sample_expected_count"] = expected_count
+        out["source_total_count"] = source_total
+        out["is_full_market_sample"] = bool(is_full)
+        out["sample_note"] = note
+        out["sample_source"] = source_name
+        return out
+
     @file_cache(ttl_seconds=MARKET_CACHE_TTL_SECONDS)
     def get_market_quotes(self, max_pages: int = MARKET_MAX_PAGES) -> pd.DataFrame:
         """获取 A 股全市场行情；失败后尝试 AKShare fallback。"""
@@ -273,16 +307,18 @@ class AStockDataProvider:
                 "f20,f21,f23,f100,f115"
             )
             fs = "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23,m:0+t:81+s:2048"
-            rows = self._eastmoney_clist(
+            rows, source_total = self._eastmoney_clist(
                 fs=fs,
                 fields=fields,
-                page_size=500,
+                page_size=MARKET_PAGE_SIZE,
                 max_pages=max_pages,
                 sort_columns="f6",
+                return_total=True,
             )
             df = self._normalize_quote_rows(rows)
             if not df.empty:
-                return df.sort_values("amount_yi", ascending=False).reset_index(drop=True)
+                df = df.sort_values("amount_yi", ascending=False).drop_duplicates("code").reset_index(drop=True)
+                return self._attach_market_sample_metadata(df, source_total=source_total)
         except Exception as exc:
             self.logger.exception("a-stock-data 全市场行情失败: %s", exc)
         return self._fallback_ak_market_quotes()
@@ -321,7 +357,8 @@ class AStockDataProvider:
             df["mcap_yi"] = df.get("mcap_yuan", 0) / 1e8
             df["float_mcap_yi"] = df.get("float_mcap_yuan", 0) / 1e8
             df["data_source"] = "fallback:akshare"
-            return add_limit_flags(df)
+            df = add_limit_flags(df)
+            return self._attach_market_sample_metadata(df, source_total=len(df), source_name="fallback:akshare")
         except Exception as exc:
             self.logger.exception("AKShare 全市场行情 fallback 失败: %s", exc)
             return empty_df()
@@ -487,7 +524,8 @@ class AStockDataProvider:
         ak = self._akshare()
         if ak is None:
             return empty_df()
-        df = ak.stock_zh_a_hist(symbol=code, period="daily", adjust="qfq")
+        # 用不复权日线，确保 close/MA 与实时行情价格口径一致，便于人工校验。
+        df = ak.stock_zh_a_hist(symbol=code, period="daily", adjust="")
         if df is None or df.empty:
             return empty_df()
         df = df.rename(
@@ -891,4 +929,3 @@ class AStockDataProvider:
 def get_provider() -> AStockDataProvider:
     """页面侧获取统一 provider。"""
     return AStockDataProvider()
-

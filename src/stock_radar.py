@@ -89,6 +89,26 @@ def _enrich_stock_candidate(provider: AStockDataProvider, stock: pd.Series, sect
     enriched = add_moving_averages(hist) if hist is not None and not hist.empty else pd.DataFrame()
     flags = latest_trend_flags(enriched)
     trend_score = trend_score_from_flags(flags)
+    close = safe_float(flags.get("close"))
+    ma20 = safe_float(flags.get("ma20"))
+    distance_ma20_pct = (close / ma20 - 1) * 100 if ma20 > 0 else 0.0
+    board_price = safe_float(stock.get("price"))
+    quote_price = board_price
+    quote_source = stock.get("data_source", "")
+    try:
+        quote = provider.tencent_quote([code]).get(code, {})
+        if safe_float(quote.get("price")) > 0:
+            quote_price = safe_float(quote.get("price"))
+            quote_source = "a-stock-data:tencent_quote"
+    except Exception as exc:
+        logger.warning("腾讯行情校验失败 %s: %s", code, exc)
+    price_diff_pct = (close / quote_price - 1) * 100 if quote_price > 0 and close > 0 else 0.0
+    price_check_status = "无法校验"
+    if quote_price > 0 and close > 0:
+        price_check_status = "价格校验通过" if abs(price_diff_pct) <= 3 else "价格校验异常"
+    history_source = ""
+    if enriched is not None and not enriched.empty and "data_source" in enriched.columns:
+        history_source = str(enriched["data_source"].iloc[-1])
 
     # 只保留趋势强于板块或至少处于多头/上升结构的候选。
     if trend_score < 45 and safe_float(stock.get("change_pct")) < safe_float(sector.get("change_pct")):
@@ -101,7 +121,9 @@ def _enrich_stock_candidate(provider: AStockDataProvider, stock: pd.Series, sect
         "board_name": sector.get("board_name", ""),
         "sector_category": sector.get("category", ""),
         "sector_score": safe_float(sector.get("score")),
-        "price": safe_float(stock.get("price")),
+        "price": quote_price,
+        "board_price": board_price,
+        "quote_source": quote_source,
         "change_pct": safe_float(stock.get("change_pct")),
         "amount_yi": safe_float(stock.get("amount_yi")),
         "turnover_pct": safe_float(stock.get("turnover_pct")),
@@ -109,6 +131,15 @@ def _enrich_stock_candidate(provider: AStockDataProvider, stock: pd.Series, sect
         "mcap_yi": safe_float(stock.get("mcap_yi")),
         "ret_20d": safe_float(flags.get("ret_20d")),
         "ret_60d": safe_float(flags.get("ret_60d")),
+        "close": close,
+        "ma5": safe_float(flags.get("ma5")),
+        "ma10": safe_float(flags.get("ma10")),
+        "ma20": ma20,
+        "ma60": safe_float(flags.get("ma60")),
+        "distance_ma20_pct": distance_ma20_pct,
+        "price_check_status": price_check_status,
+        "price_check_diff_pct": price_diff_pct,
+        "history_source": history_source,
         "trend_score": trend_score,
         "trend_status": classify_trend(enriched),
         "observe_status": observe_buy_point(enriched),
@@ -130,4 +161,3 @@ def get_stock_detail(provider: AStockDataProvider, code: str) -> dict[str, pd.Da
         "observe_status": observe_buy_point(enriched),
         "invalid_condition": invalid_condition(enriched),
     }
-

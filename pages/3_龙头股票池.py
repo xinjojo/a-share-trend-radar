@@ -41,8 +41,15 @@ else:
         "amount_yi",
         "ret_20d",
         "ret_60d",
+        "close",
+        "ma5",
+        "ma10",
+        "ma20",
+        "ma60",
+        "distance_ma20_pct",
         "trend_status",
         "observe_status",
+        "price_check_status",
         "invalid_condition",
     ]
     st.dataframe(leader_df[cols].round(2), use_container_width=True, hide_index=True)
@@ -106,4 +113,3 @@ else:
     fig.add_trace(go.Bar(x=fund_flow["date"], y=fund_flow["main_net"] / 1e8, name="主力净流入(亿)"))
     fig.update_layout(height=260, margin=dict(l=10, r=10, t=20, b=10))
     st.plotly_chart(fig, use_container_width=True)
-

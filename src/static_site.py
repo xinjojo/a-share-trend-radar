@@ -56,6 +56,9 @@ def build_static_snapshot(
         "market_temperature": market_temperature,
         "index_quotes": _records(index_df),
         "sectors": _records(sector_df),
+        "industry_sectors": _records(sector_pack.get("industry")),
+        "concept_sectors": _records(sector_pack.get("concept")),
+        "emotion_observations": _records(sector_pack.get("emotion")),
         "leaders": _records(leader_df),
         "daily_report": markdown,
         "data_sources": _collect_sources(market_df, index_df, sector_df, leader_df),
@@ -115,6 +118,7 @@ def render_index_page(snapshot: dict[str, Any]) -> str:
     metrics = temp.get("metrics", {})
     sectors = snapshot["sectors"]
     leaders = snapshot["leaders"]
+    sample_warning = "" if metrics.get("is_full_market_sample", True) else f'<div class="warning">{_e(metrics.get("sample_note", "非全市场样本"))}</div>'
     top_sectors = sectors[:10]
     continuous = [s for s in sectors if s.get("category") == "持续主线"][:6]
     hot = [s for s in sectors if s.get("category") == "短线热点"][:6]
@@ -134,11 +138,12 @@ def render_index_page(snapshot: dict[str, Any]) -> str:
       </div>
     </section>
     <section class="summary-grid">
+      {_metric_card("统计股票数", str(metrics.get('sample_count', metrics.get('total', 0))), metrics.get("sample_note", "全市场样本"))}
       {_metric_card("上涨/下跌", f"{metrics.get('up_count', 0)} / {metrics.get('down_count', 0)}", "市场宽度")}
       {_metric_card("涨停/跌停", f"{metrics.get('limit_up', 0)} / {metrics.get('limit_down', 0)}", "强弱极值")}
       {_metric_card("成交额", f"{_fmt(metrics.get('total_amount_yi'), 0)} 亿", "全市场")}
-      {_metric_card("强势股", str(metrics.get('strong_count', 0)), "涨幅 >= 5%")}
     </section>
+    {sample_warning}
     <section class="panel">
       <h2>主要指数</h2>
       {_table(snapshot["index_quotes"], ["index_name", "price", "change_pct", "amount_yi"], {"index_name": "指数", "price": "点位", "change_pct": "涨跌幅%", "amount_yi": "成交额亿"})}
@@ -163,6 +168,9 @@ def render_index_page(snapshot: dict[str, Any]) -> str:
 def render_sectors_page(snapshot: dict[str, Any]) -> str:
     """主线雷达页。"""
     sectors = snapshot["sectors"]
+    industry = snapshot.get("industry_sectors", [])
+    concept = snapshot.get("concept_sectors", [])
+    emotion = snapshot.get("emotion_observations", [])
     body = f"""
     <section class="page-title">
       <p class="eyebrow">Sector Radar</p>
@@ -172,6 +180,19 @@ def render_sectors_page(snapshot: dict[str, Any]) -> str:
     <section class="panel">
       <h2>板块评分表</h2>
       {_sector_table(sectors)}
+    </section>
+    <section class="panel">
+      <h2>行业板块</h2>
+      {_sector_table(industry)}
+    </section>
+    <section class="panel">
+      <h2>概念板块</h2>
+      {_sector_table(concept)}
+    </section>
+    <section class="panel">
+      <h2>短线情绪观察</h2>
+      <p class="muted">昨日涨停、连板、打板等短线情绪标签不参与主线行业/概念排名。</p>
+      {_emotion_table(emotion)}
     </section>
     <section class="sector-list">
       {''.join(_sector_card(sector) for sector in sectors[:24]) if sectors else _empty_state()}
@@ -290,12 +311,16 @@ def _sector_table(rows: list[dict[str, Any]]) -> str:
     """板块表。"""
     return _table(
         rows,
-        ["rank", "board_name", "category", "score", "change_pct", "ret_5d", "ret_10d", "amount_ratio_20", "up_ratio", "top_stocks"],
+        ["rank", "board_name", "board_layer", "category", "score", "rank_stability_score", "flow_score_label", "flow_score", "change_pct", "ret_5d", "ret_10d", "amount_ratio_20", "up_ratio", "top_stocks"],
         {
             "rank": "排名",
             "board_name": "板块",
+            "board_layer": "分层",
             "category": "分类",
             "score": "综合分",
+            "rank_stability_score": "稳定性",
+            "flow_score_label": "资金/代理类型",
+            "flow_score": "流/活跃分",
             "change_pct": "当日%",
             "ret_5d": "5日%",
             "ret_10d": "10日%",
@@ -306,11 +331,28 @@ def _sector_table(rows: list[dict[str, Any]]) -> str:
     )
 
 
+def _emotion_table(rows: list[dict[str, Any]]) -> str:
+    """短线情绪表。"""
+    return _table(
+        rows,
+        ["board_name", "change_pct", "amount_yi", "up_count", "down_count", "leader", "emotion_reason"],
+        {
+            "board_name": "标签",
+            "change_pct": "涨跌幅%",
+            "amount_yi": "成交额亿",
+            "up_count": "上涨家数",
+            "down_count": "下跌家数",
+            "leader": "领涨",
+            "emotion_reason": "说明",
+        },
+    )
+
+
 def _leader_table(rows: list[dict[str, Any]]) -> str:
     """股票池表。"""
     return _table(
         rows,
-        ["code", "name", "board_name", "leader_score", "price", "change_pct", "amount_yi", "ret_20d", "ret_60d", "trend_status", "observe_status", "invalid_condition"],
+        ["code", "name", "board_name", "leader_score", "price", "change_pct", "amount_yi", "ret_20d", "ret_60d", "close", "ma20", "distance_ma20_pct", "trend_status", "observe_status", "price_check_status", "invalid_condition"],
         {
             "code": "代码",
             "name": "名称",
@@ -321,8 +363,12 @@ def _leader_table(rows: list[dict[str, Any]]) -> str:
             "amount_yi": "成交额亿",
             "ret_20d": "20日%",
             "ret_60d": "60日%",
+            "close": "Close",
+            "ma20": "MA20",
+            "distance_ma20_pct": "距MA20%",
             "trend_status": "趋势",
             "observe_status": "观察状态",
+            "price_check_status": "价格校验",
             "invalid_condition": "失效条件",
         },
     )
@@ -395,7 +441,10 @@ def _stock_card(row: dict[str, Any]) -> str:
         <div><dt>所属主线</dt><dd>{_e(row.get("board_name", ""))}</dd></div>
         <div><dt>龙头分</dt><dd>{_fmt(row.get("leader_score"), 1)}</dd></div>
         <div><dt>成交额</dt><dd>{_fmt(row.get("amount_yi"), 1)} 亿</dd></div>
+        <div><dt>Close / MA20</dt><dd>{_fmt(row.get("close"), 2)} / {_fmt(row.get("ma20"), 2)}</dd></div>
+        <div><dt>距 MA20</dt><dd>{_fmt(row.get("distance_ma20_pct"), 2)}%</dd></div>
         <div><dt>趋势</dt><dd>{_e(row.get("trend_status", ""))}</dd></div>
+        <div><dt>价格校验</dt><dd>{_e(row.get("price_check_status", ""))}</dd></div>
       </dl>
       <p class="muted">失效条件：{_e(row.get("invalid_condition", ""))}</p>
     </article>
@@ -481,7 +530,7 @@ def _format_cell(col: str, value: Any) -> str:
     if col in {"change_pct", "ret_3d", "ret_5d", "ret_10d", "ret_20d", "ret_60d", "up_ratio"}:
         multiplier = 100 if col == "up_ratio" and safe_float(value) <= 1 else 1
         return f"{safe_float(value) * multiplier:.2f}"
-    if col in {"score", "leader_score", "sector_score", "price", "amount_yi", "amount_ratio_20"}:
+    if col in {"score", "leader_score", "sector_score", "price", "amount_yi", "amount_ratio_20", "rank_stability_score", "flow_score", "close", "ma20", "ma5", "ma10", "ma60", "distance_ma20_pct"}:
         return _fmt(value, 2)
     return _e(value)
 
@@ -685,6 +734,15 @@ dd { margin: 2px 0 0; font-weight: 750; }
   border: 1px dashed var(--line);
   border-radius: 8px;
   background: #fafbfd;
+}
+.warning {
+  margin: 16px 0;
+  padding: 12px 16px;
+  border: 1px solid #e4a11b;
+  border-radius: 8px;
+  background: #fff8e6;
+  color: #7a4b00;
+  font-weight: 700;
 }
 .archive-list li { padding: 12px 0; border-bottom: 1px solid var(--line); }
 footer {
