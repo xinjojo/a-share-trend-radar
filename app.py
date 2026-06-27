@@ -158,7 +158,7 @@ else:
         "sector_category",
         "price",
         "price_basis",
-        "quote_price",
+        "current_price",
         "price_check_diff_pct",
         "change_pct",
         "amount_yi",
@@ -170,6 +170,7 @@ else:
         "trend_status",
         "observe_status",
         "price_check_status",
+        "price_check_detail",
     ]
     show_cols = [col for col in show_cols if col in leader_df.columns]
     if "pool_group" not in leader_df.columns:

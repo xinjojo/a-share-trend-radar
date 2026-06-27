@@ -111,6 +111,7 @@ def _enrich_stock_candidate(provider: AStockDataProvider, stock: pd.Series, sect
             price_check_reference = "a-stock-data:tencent_quote"
     except Exception as exc:
         logger.warning("腾讯行情校验失败 %s: %s", code, exc)
+    display_price = close
     price_diff_pct = (close / current_price - 1) * 100 if current_price > 0 and close > 0 else 0.0
     price_check_status = "无法校验"
     if current_price > 0 and close > 0:
@@ -144,7 +145,8 @@ def _enrich_stock_candidate(provider: AStockDataProvider, stock: pd.Series, sect
         "board_name": sector.get("board_name", ""),
         "sector_category": sector.get("category", ""),
         "sector_score": safe_float(sector.get("score")),
-        "price": close if close > 0 else current_price,
+        "price": display_price,
+        "price_is_unadjusted_close": close > 0 and price_basis == "不复权",
         "price_basis": price_basis,
         "ma_basis": ma_basis,
         "adjustment": adjustment,
@@ -204,7 +206,7 @@ def _deduplicate_leader_pool(df: pd.DataFrame) -> pd.DataFrame:
     rows = []
     for _, group in sorted_df.groupby("code", sort=False):
         group_sorted = group.sort_values(
-            [col for col in ["sector_score", "leader_score", "amount_yi"] if col in group.columns],
+            [col for col in ["leader_score", "sector_score", "amount_yi"] if col in group.columns],
             ascending=False,
         )
         best = group_sorted.iloc[0].copy()

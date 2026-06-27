@@ -40,7 +40,7 @@ else:
         "sector_score",
         "price",
         "price_basis",
-        "quote_price",
+        "current_price",
         "price_check_diff_pct",
         "change_pct",
         "amount_yi",
@@ -55,6 +55,7 @@ else:
         "trend_status",
         "observe_status",
         "price_check_status",
+        "price_check_detail",
         "invalid_condition",
     ]
     cols = [col for col in cols if col in leader_df.columns]
