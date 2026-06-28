@@ -29,12 +29,13 @@ def run_self_check(snapshot: dict[str, Any], output_dir: Path | str) -> Path:
     checks = {
         "数据完整性": _check_data_integrity(final_snapshot),
         "页面完整性": _check_page_integrity(final_snapshot, output_path),
-        "逻辑完整性": _check_logic_integrity(final_snapshot),
+        "逻辑完整性": _check_logic_integrity(final_snapshot, output_path),
     }
     report_path = output_path / "self_check_report.md"
-    report_path.write_text(_render_report(checks), encoding="utf-8")
+    generated_at = str(final_snapshot.get("generated_at", datetime.now().isoformat(timespec="seconds")))
+    report_path.write_text(_clean_text(_render_report(checks, generated_at)), encoding="utf-8")
     html_path = output_path / "self_check_report.html"
-    html_path.write_text(_render_html_report(checks), encoding="utf-8")
+    html_path.write_text(_clean_text(_render_html_report(checks, generated_at)), encoding="utf-8")
     return report_path
 
 
@@ -69,6 +70,7 @@ def _check_page_integrity(snapshot: dict[str, Any], output_dir: Path) -> list[di
     daily = _read_text(output_dir / "daily.html")
     v3 = _read_text(output_dir / "v3.html")
     generated_at = str(snapshot.get("generated_at", ""))
+    latest = _read_text(output_dir / "data" / "latest.json")
     return [
         _result("今日一句话" in index, "首页有今日一句话", "", "检查 render_index_page。"),
         _result("历史快照已保存" in index, "首页显示历史快照已保存", "", "检查 render_index_page 历史快照状态模块。"),
@@ -78,16 +80,16 @@ def _check_page_integrity(snapshot: dict[str, Any], output_dir: Path) -> list[di
         _result("进度" not in lifecycle, "生命周期页没有“进度”字段", "", "移除生命周期页 lifecycle_progress 展示，避免退潮期 100/100 误导。"),
         _result("3 分钟摘要" in daily or "3分钟摘要" in daily, "日报页有 3 分钟摘要", "", "在日报开头保留简短摘要说明。"),
         _result(
-            bool(generated_at) and generated_at in index and generated_at in daily,
-            "日报生成时间与首页一致",
+            bool(generated_at) and generated_at in index and generated_at in daily and generated_at in latest,
+            "首页/日报/latest.json 生成时间一致",
             f"生成时间：{generated_at}",
-            "检查 render_index_page/render_daily_page 是否使用同一 snapshot.generated_at。",
+            "检查 build_static_snapshot 是否先生成同一个 snapshot，再写 latest.json/index.html/daily.html。",
         ),
         _result("近似回放" in v3 and "成分幸存者偏差" in v3, "V3 页面标注近似回放限制", "", "检查 render_v3_page。"),
     ]
 
 
-def _check_logic_integrity(snapshot: dict[str, Any]) -> list[dict[str, str]]:
+def _check_logic_integrity(snapshot: dict[str, Any], output_dir: Path) -> list[dict[str, str]]:
     """检查关键业务约束。"""
     ops = snapshot.get("operating_summary", {})
     groups = ops.get("stock_groups", {})
@@ -135,6 +137,10 @@ def _check_logic_integrity(snapshot: dict[str, Any]) -> list[dict[str, str]]:
     proxy_labels_ok = _proxy_label_ok(sectors, snapshot)
     history_available = bool(ops.get("history_available"))
     history_message_ok = history_available or "暂无昨日数据" in str(ops.get("changes", {}).get("message", ""))
+    index = _read_text(output_dir / "index.html")
+    index_candidate_section = _index_stock_group_section(index, "可研究候选", "强主线回调观察")
+    index_candidate_count = _index_stock_count(index_candidate_section)
+    bad_index_candidates = _bad_index_candidate_rows(index_candidate_section, all_group_rows, action_by_sector)
 
     return [
         _result(not bad_research, "高位/退潮股票未进入可研究候选", f"异常 {len(bad_research)} 只。", "检查 build_stock_groups 分组条件。"),
@@ -149,6 +155,18 @@ def _check_logic_integrity(snapshot: dict[str, Any]) -> list[dict[str, str]]:
             "可研究候选展示主线 Action 必须全部为重点研究",
             _bad_display_action_detail(bad_research_display_action, action_by_sector),
             "检查最终 latest.json/index.html：可研究候选不能展示等回调、只观察/不追或回避主线。",
+        ),
+        _result(
+            not bad_index_candidates,
+            "首页可研究候选不得出现非重点研究主线股票",
+            _bad_index_candidate_detail(bad_index_candidates, action_by_sector),
+            "重新生成 docs/index.html，确保首页股票池来自最新 latest.json。",
+        ),
+        _result(
+            index_candidate_count == len(research),
+            "首页可研究候选数量等于 latest.json",
+            f"index.html={index_candidate_count}，latest.json={len(research)}。",
+            "检查 render_index_page 是否用最新 operating_summary.stock_groups 渲染。",
         ),
         _result(not bad_focus, "退潮期主线未进入重点研究", f"异常 {len(bad_focus)} 条。", "检查 determine_action 风险阈值。"),
         _result(not emotion_in_main, "短线情绪标签未进入主线排名", f"异常 {len(emotion_in_main)} 条。", "检查 sector_radar._split_concept_and_emotion。"),
@@ -185,6 +203,57 @@ def _display_sector_names(row: dict[str, Any]) -> list[str]:
 
 def _bad_display_action_detail(rows: list[dict[str, Any]], action_by_sector: dict[str, str]) -> str:
     """展示主线 Action 错误详情。"""
+    if not rows:
+        return "异常 0 只。"
+    items = []
+    for row in rows[:8]:
+        names = _display_sector_names(row)
+        action_text = " / ".join(f"{name}:{action_by_sector.get(name, '未知')}" for name in names)
+        items.append(f"{row.get('code', '')}{row.get('name', '')}({action_text})")
+    return "异常 " + str(len(rows)) + " 只：" + "；".join(items)
+
+
+def _index_stock_group_section(index_html: str, start_title: str, next_title: str) -> str:
+    """截取最终首页某个股票池分组的 HTML。"""
+    start_marker = f"<h3>{start_title}</h3>"
+    next_marker = f"<h3>{next_title}</h3>"
+    start = index_html.find(start_marker)
+    if start < 0:
+        return ""
+    end = index_html.find(next_marker, start + len(start_marker))
+    return index_html[start:end if end >= 0 else len(index_html)]
+
+
+def _index_stock_count(section_html: str) -> int:
+    """统计首页股票池分组中真实股票条数。"""
+    if not section_html or "当前没有符合条件的股票" in section_html:
+        return 0
+    return section_html.count("<li>")
+
+
+def _bad_index_candidate_rows(
+    section_html: str,
+    rows: list[dict[str, Any]],
+    action_by_sector: dict[str, str],
+) -> list[dict[str, Any]]:
+    """找出首页可研究候选段落中出现的非重点研究主线股票。"""
+    bad_rows = []
+    if not section_html:
+        return rows
+    for row in rows:
+        code = str(row.get("code", ""))
+        name = str(row.get("name", ""))
+        if not code and not name:
+            continue
+        if code not in section_html and name not in section_html:
+            continue
+        if not _candidate_display_actions_are_focus(row, action_by_sector):
+            bad_rows.append(row)
+    return bad_rows
+
+
+def _bad_index_candidate_detail(rows: list[dict[str, Any]], action_by_sector: dict[str, str]) -> str:
+    """首页候选段落错误详情。"""
     if not rows:
         return "异常 0 只。"
     items = []
@@ -237,12 +306,12 @@ def _load_final_snapshot(output_dir: Path, fallback: dict[str, Any]) -> dict[str
         return fallback
 
 
-def _render_report(checks: dict[str, list[dict[str, str]]]) -> str:
+def _render_report(checks: dict[str, list[dict[str, str]]], generated_at: str) -> str:
     """渲染自检 Markdown。"""
     lines = [
         "# A 股主线雷达自检报告",
         "",
-        f"生成时间：{datetime.now().isoformat(timespec='seconds')}",
+        f"生成时间：{generated_at}",
         "",
     ]
     for section, rows in checks.items():
@@ -257,7 +326,7 @@ def _render_report(checks: dict[str, list[dict[str, str]]]) -> str:
     return "\n".join(lines)
 
 
-def _render_html_report(checks: dict[str, list[dict[str, str]]]) -> str:
+def _render_html_report(checks: dict[str, list[dict[str, str]]], generated_at: str) -> str:
     """渲染 HTML 自检报告，便于 GitHub Pages 直接打开。"""
     sections = []
     for section, rows in checks.items():
@@ -276,7 +345,6 @@ def _render_html_report(checks: dict[str, list[dict[str, str]]]) -> str:
                 """
             )
         sections.append(f"<section><h2>{html.escape(section)}</h2><ul>{''.join(items)}</ul></section>")
-    generated_at = datetime.now().isoformat(timespec="seconds")
     return f"""<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -308,3 +376,8 @@ def _render_html_report(checks: dict[str, list[dict[str, str]]]) -> str:
 </body>
 </html>
 """
+
+
+def _clean_text(content: str) -> str:
+    """清理报告行尾空白。"""
+    return "\n".join(line.rstrip() for line in content.splitlines()) + "\n"
