@@ -200,6 +200,25 @@ h3 { font-size: 17px; }
   font-size: 14px;
   line-height: 1.45;
 }
+.snapshot-status {
+  margin: 16px 0;
+  padding: 13px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: center;
+}
+.snapshot-status.saved {
+  background: #edf8f4;
+  border-color: #b7dfcf;
+  color: #0f5132;
+}
+.snapshot-status span {
+  color: inherit;
+  font-size: 13px;
+}
 .subsection { margin-top: 16px; }
 .subsection h3 { margin: 0 0 10px; }
 .three-columns {

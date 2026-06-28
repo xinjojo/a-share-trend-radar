@@ -7,6 +7,7 @@ BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
 CACHE_DIR = DATA_DIR / "cache"
 DB_PATH = DATA_DIR / "radar.db"
+HISTORY_DB_PATH = DATA_DIR / "radar_history.db"
 LOG_PATH = CACHE_DIR / "radar.log"
 
 for path in (DATA_DIR, CACHE_DIR):

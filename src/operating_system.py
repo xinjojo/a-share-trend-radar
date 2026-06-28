@@ -11,12 +11,14 @@ from typing import Any
 import pandas as pd
 
 from src.database import get_connection, init_db
+from src.history_db import save_radar_history_snapshot
 from src.scoring import enrich_operating_scores
-from src.utils import safe_float, safe_int, today_str
+from src.utils import safe_float, safe_int, setup_logger, today_str
 
 
 SNAPSHOT_TABLE = "sector_operating_snapshots"
 RESEARCH_STATUSES = {"缩量回踩 5 日线", "缩量回踩 10 日线", "缩量回踩 20 日线", "放量反包"}
+logger = setup_logger(__name__)
 
 
 def build_operating_system(
@@ -43,6 +45,22 @@ def build_operating_system(
     stock_groups = build_stock_groups(leader_df, sectors)
     one_liner = generate_one_liner(market_temperature, sectors, changes, stock_groups)
     actions = build_today_actions(sectors, stock_groups)
+    history_snapshot = {}
+    if persist:
+        try:
+            history_snapshot = save_radar_history_snapshot(
+                report_date=report_date,
+                market_temperature=market_temperature,
+                sector_df=sectors,
+                stock_groups=stock_groups,
+                actions=actions,
+            )
+        except Exception as exc:
+            logger.exception("保存 V3 真实快照失败: %s", exc)
+            history_snapshot = {
+                "saved": False,
+                "message": f"历史快照保存失败：{exc}",
+            }
     trends = build_history_trends(history, sectors, lookback_days=10)
     observations = build_next_observations(sectors, changes, stock_groups)
     return {
@@ -55,6 +73,7 @@ def build_operating_system(
         "history_trends": trends,
         "next_observations": observations,
         "history_available": bool(changes.get("history_available")),
+        "history_snapshot": history_snapshot,
     }
 
 

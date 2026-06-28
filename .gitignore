@@ -5,4 +5,4 @@ __pycache__/
 data/cache/*.pkl
 data/cache/*.log
 data/radar.db
-
+data/radar_history.db

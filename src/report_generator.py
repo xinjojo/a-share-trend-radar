@@ -24,7 +24,7 @@ def generate_daily_report(
     if ops_summary is None:
         from src.operating_system import build_operating_system
 
-        ops_summary = build_operating_system(market_temperature, sector_df, leader_df, report_date=report_date, persist=False)
+        ops_summary = build_operating_system(market_temperature, sector_df, leader_df, report_date=report_date, persist=True)
     enriched_sectors = ops_summary.get("sectors")
     if isinstance(enriched_sectors, pd.DataFrame):
         sector_df = enriched_sectors

@@ -43,6 +43,12 @@ def _check_data_integrity(snapshot: dict[str, Any]) -> list[dict[str, str]]:
         _result(bool(snapshot.get("sectors")), "主线表非空", f"输出主线 {len(snapshot.get('sectors', []))} 条。", "检查板块行情、板块历史和评分链路。"),
         _result(bool(snapshot.get("leaders")), "龙头股票池非空", f"输出股票 {len(snapshot.get('leaders', []))} 只。", "检查成分股接口和个股历史 K 线接口。"),
         _result(bool(snapshot.get("operating_summary", {}).get("one_liner")), "今日一句话非空", "操作摘要已生成。", "检查 operating_system.generate_one_liner。"),
+        _result(
+            bool(snapshot.get("operating_summary", {}).get("history_snapshot", {}).get("saved")),
+            "真实历史快照已保存",
+            str(snapshot.get("operating_summary", {}).get("history_snapshot", {}).get("database", "data/radar_history.db")),
+            "检查 src.history_db.save_radar_history_snapshot 是否正常写入。",
+        ),
     ]
     return rows
 
@@ -52,9 +58,11 @@ def _check_page_integrity(snapshot: dict[str, Any], output_dir: Path) -> list[di
     index = _read_text(output_dir / "index.html")
     lifecycle = _read_text(output_dir / "lifecycle.html")
     daily = _read_text(output_dir / "daily.html")
+    v3 = _read_text(output_dir / "v3.html")
     generated_at = str(snapshot.get("generated_at", ""))
     return [
         _result("今日一句话" in index, "首页有今日一句话", "", "检查 render_index_page。"),
+        _result("历史快照已保存" in index, "首页显示历史快照已保存", "", "检查 render_index_page 历史快照状态模块。"),
         _result("今日 Action" in index, "首页有今日 Action", "", "检查 render_index_page。"),
         _result("今日变化" in index, "首页有今日变化", "", "检查 render_index_page。"),
         _result("机会分" in lifecycle and "风险分" in lifecycle, "生命周期页有机会分/风险分", "", "检查 render_lifecycle_page。"),
@@ -66,6 +74,7 @@ def _check_page_integrity(snapshot: dict[str, Any], output_dir: Path) -> list[di
             f"生成时间：{generated_at}",
             "检查 render_index_page/render_daily_page 是否使用同一 snapshot.generated_at。",
         ),
+        _result("近似回放" in v3 and "成分幸存者偏差" in v3, "V3 页面标注近似回放限制", "", "检查 render_v3_page。"),
     ]
 
 

@@ -97,6 +97,7 @@ def build_static_snapshot(
         "stocks.html": render_stocks_page(snapshot),
         "lifecycle.html": render_lifecycle_page(snapshot),
         "rotation.html": render_rotation_page(snapshot),
+        "v3.html": render_v3_page(snapshot),
         "daily.html": render_daily_page(snapshot),
     }
     for filename, content in pages.items():
@@ -176,6 +177,7 @@ def render_index_page(snapshot: dict[str, Any]) -> str:
     </section>
     {sample_warning}
     {_data_basis_panel(basis)}
+    {_history_snapshot_panel(ops.get("history_snapshot", {}))}
     <section class="panel">
       <h2>今日 Action</h2>
       {_action_grid(ops.get("actions", {}))}
@@ -344,6 +346,62 @@ def render_daily_page(snapshot: dict[str, Any], is_history: bool = False) -> str
     return _layout(title, "daily", body, root_prefix="../" if is_history else "")
 
 
+def render_v3_page(snapshot: dict[str, Any]) -> str:
+    """V3 前向验证说明页。"""
+    ops = snapshot.get("operating_summary", {})
+    history_status = ops.get("history_snapshot", {})
+    body = f"""
+    <section class="page-title">
+      <p class="eyebrow">V3 Validation</p>
+      <h1>前向验证与技术信号回测</h1>
+      <p class="muted">V3 不做伪历史主线回测，先保存真实每日快照，再验证个股技术信号，最后再做标注偏差的近似主线历史回放。</p>
+    </section>
+    {_history_snapshot_panel(history_status)}
+    <section class="panel">
+      <h2>三阶段路径</h2>
+      <div class="three-columns">
+        <div class="change-block">
+          <h3>第一阶段：真实快照数据库</h3>
+          <ul>
+            <li>每日生成首页/日报后写入 data/radar_history.db。</li>
+            <li>保存 market_snapshot、sector_snapshot、stock_snapshot、action_snapshot。</li>
+            <li>同一日期重复生成会覆盖更新，不累积脏数据。</li>
+          </ul>
+        </div>
+        <div class="change-block">
+          <h3>第二阶段：个股技术信号回测</h3>
+          <ul>
+            <li>在 Streamlit 页面“个股技术信号回测”运行。</li>
+            <li>验证 MA 多头、距 MA20、缩量回踩、放量反包、跌破 MA20、高位过热。</li>
+            <li>输出 1/3/5/10/20 日收益分布、胜率、平均收益和回撤。</li>
+          </ul>
+        </div>
+        <div class="change-block">
+          <h3>第三阶段：近似主线历史回放</h3>
+          <ul>
+            <li>后续使用历史行情与板块数据尽量重建每日板块评分。</li>
+            <li>必须标注“近似回放”，不等同于当时真实系统快照。</li>
+            <li>若只能取得当前成分股，会明确提示成分幸存者偏差。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+    <section class="panel">
+      <h2>当前快照落库状态</h2>
+      {_table([history_status], ["saved", "database", "generated_at", "market_rows", "sector_rows", "stock_rows", "action_rows"], {"saved": "已保存", "database": "数据库", "generated_at": "保存时间", "market_rows": "市场", "sector_rows": "主线", "stock_rows": "股票", "action_rows": "Action"})}
+    </section>
+    <section class="panel">
+      <h2>数据源约束</h2>
+      <ul class="archive-list">
+        <li>个股 K 线优先 mootdx；实时价、市值、换手率等优先腾讯。</li>
+        <li>东财仅用于行业板块、个股资金流、龙虎榜、融资融券、股东户数、研报等独有数据，并串行限流。</li>
+        <li>数据不可得时写入空值并提示，不伪造历史 Action、生命周期或资金流。</li>
+      </ul>
+    </section>
+    """
+    return _layout("V3 前向验证", "v3", body)
+
+
 def _layout(title: str, active: str, body: str, root_prefix: str = "") -> str:
     """统一 HTML 布局。"""
     history_href = "index.html" if root_prefix else "history/index.html"
@@ -353,6 +411,7 @@ def _layout(title: str, active: str, body: str, root_prefix: str = "") -> str:
         ("stocks", "股票池", f"{root_prefix}stocks.html"),
         ("lifecycle", "生命周期", f"{root_prefix}lifecycle.html"),
         ("rotation", "轮动", f"{root_prefix}rotation.html"),
+        ("v3", "V3验证", f"{root_prefix}v3.html"),
         ("daily", "日报", f"{root_prefix}daily.html"),
         ("history", "历史", history_href),
     ]
@@ -430,6 +489,31 @@ def _data_basis_panel(basis: dict[str, Any]) -> str:
       <div class="basis-grid">
         {''.join(f'<div class="basis-item"><span>{_e(label)}</span><strong>{_e(value)}</strong></div>' for label, value in items)}
       </div>
+    </section>
+    """
+
+
+def _history_snapshot_panel(status: dict[str, Any]) -> str:
+    """首页历史快照保存状态。"""
+    if not status:
+        return """
+        <section class="snapshot-status warning">
+          <strong>历史快照尚未保存</strong>
+          <span>请重新生成首页或日报后检查 data/radar_history.db。</span>
+        </section>
+        """
+    saved = bool(status.get("saved"))
+    cls = "snapshot-status saved" if saved else "snapshot-status warning"
+    title = "历史快照已保存" if saved else "历史快照保存失败"
+    detail = (
+        f"数据库：{status.get('database', 'data/radar_history.db')}；"
+        f"市场 {status.get('market_rows', 0)} 条，主线 {status.get('sector_rows', 0)} 条，"
+        f"股票 {status.get('stock_rows', 0)} 条，Action {status.get('action_rows', 0)} 条。"
+    )
+    return f"""
+    <section class="{cls}">
+      <strong>{_e(title)}</strong>
+      <span>{_e(detail)}</span>
     </section>
     """
 
@@ -946,6 +1030,7 @@ def _serialize_operating_summary(ops: dict[str, Any]) -> dict[str, Any]:
         "history_trends": _records(trends if isinstance(trends, pd.DataFrame) else pd.DataFrame(trends)),
         "next_observations": ops.get("next_observations", []),
         "history_available": bool(ops.get("history_available")),
+        "history_snapshot": ops.get("history_snapshot", {}),
     }
 
 
@@ -1287,6 +1372,25 @@ h3 { font-size: 17px; }
   display: block;
   font-size: 14px;
   line-height: 1.45;
+}
+.snapshot-status {
+  margin: 16px 0;
+  padding: 13px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: center;
+}
+.snapshot-status.saved {
+  background: #edf8f4;
+  border-color: #b7dfcf;
+  color: #0f5132;
+}
+.snapshot-status span {
+  color: inherit;
+  font-size: 13px;
 }
 .subsection { margin-top: 16px; }
 .subsection h3 { margin: 0 0 10px; }

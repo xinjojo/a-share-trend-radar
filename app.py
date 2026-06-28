@@ -85,6 +85,17 @@ st.caption(
 
 st.subheader("今日一句话")
 st.info(ops.get("one_liner", "主线数据不足，先观察数据源状态。"))
+history_snapshot = ops.get("history_snapshot", {})
+if history_snapshot.get("saved"):
+    st.success(
+        "历史快照已保存："
+        f"市场 {history_snapshot.get('market_rows', 0)} 条，"
+        f"主线 {history_snapshot.get('sector_rows', 0)} 条，"
+        f"股票 {history_snapshot.get('stock_rows', 0)} 条，"
+        f"Action {history_snapshot.get('action_rows', 0)} 条。"
+    )
+elif history_snapshot:
+    st.warning(history_snapshot.get("message", "历史快照尚未保存。"))
 
 st.subheader("今日 Action")
 action_cols = st.columns(4)
