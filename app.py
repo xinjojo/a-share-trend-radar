@@ -7,6 +7,7 @@ import streamlit as st
 
 from config import BOARD_ANALYSIS_LIMIT, EMPTY_HINT, INDEX_SYMBOLS
 from src.data_provider import get_provider
+from src.operating_system import build_operating_system
 from src.report_generator import generate_daily_report
 from src.scoring import score_market_temperature
 from src.sector_radar import build_sector_radar
@@ -26,7 +27,15 @@ def load_dashboard(include_concepts: bool, max_boards: int):
     temperature = score_market_temperature(market_df, index_df)
     sector_pack = build_sector_radar(provider, max_boards=max_boards, include_concepts=include_concepts)
     leader_df = build_leader_pool(provider, sector_pack["all"])
-    return market_df, index_df, temperature, sector_pack, leader_df
+    ops = build_operating_system(temperature, sector_pack["all"], leader_df, report_date=today_str(), persist=True)
+    sector_pack["all"] = ops["sectors"]
+    if not ops["sectors"].empty and "board_layer" in ops["sectors"].columns:
+        sector_pack["industry"] = ops["sectors"][ops["sectors"]["board_layer"] == "industry"].reset_index(drop=True)
+        sector_pack["concept"] = ops["sectors"][ops["sectors"]["board_layer"] == "concept"].reset_index(drop=True)
+        sector_pack["持续主线"] = ops["sectors"][ops["sectors"]["category"] == "持续主线"].reset_index(drop=True)
+        sector_pack["短线热点"] = ops["sectors"][ops["sectors"]["category"] == "短线热点"].reset_index(drop=True)
+        sector_pack["退潮板块"] = ops["sectors"][ops["sectors"]["category"] == "退潮板块"].reset_index(drop=True)
+    return market_df, index_df, temperature, sector_pack, leader_df, ops
 
 
 st.title("A股主线雷达")
@@ -39,7 +48,7 @@ with st.sidebar:
     st.caption("首次运行需要请求公开接口；缓存命中后会明显加快。")
 
 with st.spinner("正在扫描市场温度、主线板块和股票池..."):
-    market_df, index_df, temperature, sector_pack, leader_df = load_dashboard(include_concepts, max_boards)
+    market_df, index_df, temperature, sector_pack, leader_df, ops = load_dashboard(include_concepts, max_boards)
 
 metrics = temperature.get("metrics", {})
 col1, col2, col3, col4, col5 = st.columns(5)
@@ -74,6 +83,45 @@ st.caption(
     f"资金口径：{fund_basis_text}。"
 )
 
+st.subheader("今日一句话")
+st.info(ops.get("one_liner", "主线数据不足，先观察数据源状态。"))
+
+st.subheader("今日 Action")
+action_cols = st.columns(4)
+for col, label in zip(action_cols, ["重点研究", "等回调", "只观察", "回避"], strict=False):
+    with col:
+        st.markdown(f"**{label}**")
+        rows = ops.get("actions", {}).get(label, [])
+        if not rows:
+            st.caption("暂无")
+        for row in rows:
+            st.write(f"{row.get('board_name', '')}")
+            st.caption(
+                f"{row.get('reason', '')} | 综合 {row.get('score', '')} / "
+                f"机会 {row.get('opportunity_score', '')} / 风险 {row.get('risk_score', '')} / 信心 {row.get('confidence_score', '')}"
+            )
+
+st.subheader("今日变化")
+changes = ops.get("changes", {})
+if not changes.get("history_available"):
+    st.warning(changes.get("message", "暂无昨日数据，请连续运行后查看变化。"))
+else:
+    st.caption(f"对比日期：{changes.get('previous_date')}")
+    ch1, ch2, ch3 = st.columns(3)
+    ch1.write("新增主线")
+    ch1.caption("、".join(changes.get("new_sectors", [])[:6]) or "暂无")
+    ch2.write("退出主线")
+    ch2.caption("、".join(changes.get("exited_sectors", [])[:6]) or "暂无")
+    ch3.write("生命周期变化")
+    ch3.caption("；".join(item.get("text", "") for item in changes.get("lifecycle_changes", [])[:4]) or "暂无")
+    ch4, ch5, ch6 = st.columns(3)
+    ch4.write("评分上升最多")
+    ch4.dataframe(changes.get("score_gainers", []), use_container_width=True, hide_index=True)
+    ch5.write("评分下降最多")
+    ch5.dataframe(changes.get("score_losers", []), use_container_width=True, hide_index=True)
+    ch6.write("龙头切换")
+    ch6.caption("；".join(item.get("text", "") for item in changes.get("leader_switches", [])[:4]) or "暂无")
+
 idx_col, dist_col = st.columns([1, 1])
 with idx_col:
     st.subheader("主要指数")
@@ -103,9 +151,12 @@ else:
         "board_name",
         "board_layer",
         "category",
+        "action",
         "lifecycle_state",
-        "lifecycle_recommendation",
         "score",
+        "opportunity_score",
+        "risk_score",
+        "confidence_score",
         "rank_stability_score",
         "flow_score_label",
         "flow_score",
@@ -160,14 +211,17 @@ with tab5:
         st.dataframe(emotion_df[[c for c in cols if c in emotion_df.columns]].round(2), use_container_width=True, hide_index=True)
 
 st.subheader("今日可研究股票池")
-if leader_df.empty:
+stock_groups = ops.get("stock_groups", {})
+if not stock_groups:
     st.warning(EMPTY_HINT)
 else:
     show_cols = [
-        "pool_group",
+        "stock_research_group",
         "code",
         "name",
         "board_name",
+        "matched_lifecycle",
+        "matched_action",
         "leader_score",
         "research_priority_score",
         "sector_category",
@@ -184,27 +238,30 @@ else:
         "distance_ma20_pct",
         "trend_status",
         "observe_status",
+        "stock_group_reason",
         "price_check_status",
         "price_check_detail",
     ]
-    show_cols = [col for col in show_cols if col in leader_df.columns]
-    if "pool_group" not in leader_df.columns:
-        leader_df = leader_df.assign(pool_group="高位观察/不适合追")
-    research_df = leader_df[leader_df["pool_group"] == "可研究候选"]
-    watch_df = leader_df[leader_df["pool_group"] != "可研究候选"]
-    pool_tab1, pool_tab2 = st.tabs(["可研究候选", "高位观察/不适合追"])
-    with pool_tab1:
-        if research_df.empty:
-            st.caption("暂无符合克制条件的可研究候选。")
-        else:
-            st.dataframe(research_df[show_cols].round(2), use_container_width=True, hide_index=True)
-    with pool_tab2:
-        if watch_df.empty:
-            st.caption("暂无高位观察标的。")
-        else:
-            st.dataframe(watch_df[show_cols].round(2), use_container_width=True, hide_index=True)
+    pool_tabs = st.tabs(["可研究候选", "等待回调", "回避 / 不追"])
+    for tab, name in zip(pool_tabs, ["可研究候选", "等待回调", "回避 / 不追"], strict=False):
+        with tab:
+            data = stock_groups.get(name)
+            if data is None or data.empty:
+                st.caption("暂无符合条件的股票。")
+            else:
+                cols = [col for col in show_cols if col in data.columns]
+                st.dataframe(data[cols].round(2), use_container_width=True, hide_index=True)
+
+trend_df = ops.get("history_trends")
+if trend_df is not None and not trend_df.empty:
+    st.subheader("最近 10 日主线趋势")
+    st.dataframe(
+        trend_df[["date", "sector_name", "rank", "score", "opportunity_score", "risk_score", "confidence_score", "lifecycle_stage", "action"]].round(2),
+        use_container_width=True,
+        hide_index=True,
+    )
 
 with st.expander("生成今日 Markdown 日报", expanded=False):
-    report = generate_daily_report(temperature, sector_df, leader_df)
+    report = generate_daily_report(temperature, sector_df, leader_df, ops_summary=ops)
     st.download_button("下载日报 Markdown", report, file_name="A股主线雷达日报.md", mime="text/markdown")
     st.code(report[:4000], language="markdown")

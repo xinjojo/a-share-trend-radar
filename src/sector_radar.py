@@ -47,6 +47,9 @@ def build_sector_radar(
         concept_df = provider.get_concept_boards()
         concept_df = _normalize_board_layer(concept_df, "concept")
         concept_theme_df, emotion_df = _split_concept_and_emotion(concept_df)
+    source_industry_count = len(industry_df) if industry_df is not None else 0
+    source_concept_count = len(concept_theme_df) if concept_theme_df is not None else 0
+    source_board_count = source_industry_count + source_concept_count
 
     frames = [industry_df, concept_theme_df]
     board_df = pd.concat([df for df in frames if df is not None and not df.empty], ignore_index=True)
@@ -60,6 +63,9 @@ def build_sector_radar(
             "持续主线": empty,
             "短线热点": empty,
             "退潮板块": empty,
+            "source_board_count": source_board_count,
+            "source_industry_count": source_industry_count,
+            "source_concept_count": source_concept_count,
         }
 
     # 兼顾涨幅和成交额，避免只扫到单日脉冲。
@@ -97,6 +103,9 @@ def build_sector_radar(
         "持续主线": scored[scored["category"] == "持续主线"].reset_index(drop=True) if not scored.empty else scored,
         "短线热点": scored[scored["category"] == "短线热点"].reset_index(drop=True) if not scored.empty else scored,
         "退潮板块": scored[scored["category"] == "退潮板块"].reset_index(drop=True) if not scored.empty else scored,
+        "source_board_count": source_board_count,
+        "source_industry_count": source_industry_count,
+        "source_concept_count": source_concept_count,
     }
 
 

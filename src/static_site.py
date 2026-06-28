@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import ast
 import html
 import json
 import shutil
@@ -16,10 +17,12 @@ import pandas as pd
 
 from config import BASE_DIR, BOARD_ANALYSIS_LIMIT, INDEX_SYMBOLS
 from src.data_provider import get_provider
+from src.operating_system import build_operating_system
 from src.report_generator import generate_daily_report
 from src.rotation import build_rotation_tracker
 from src.scoring import score_market_temperature
 from src.sector_radar import build_sector_radar
+from src.self_check import run_self_check
 from src.stock_radar import build_leader_pool
 from src.utils import safe_float, today_str
 
@@ -49,8 +52,16 @@ def build_static_snapshot(
     sector_pack = build_sector_radar(provider, max_boards=max_boards, include_concepts=include_concepts)
     sector_df = sector_pack["all"]
     leader_df = build_leader_pool(provider, sector_df)
+    ops = build_operating_system(market_temperature, sector_df, leader_df, report_date=report_date, persist=True)
+    sector_df = ops["sectors"]
     rotation_pack = build_rotation_tracker(sector_df, report_date=report_date, lookback_days=20, persist=True)
-    markdown = generate_daily_report(market_temperature, sector_df, leader_df, report_date=report_date)
+    markdown = generate_daily_report(
+        market_temperature,
+        sector_df,
+        leader_df,
+        report_date=report_date,
+        ops_summary=ops,
+    )
 
     snapshot = {
         "report_date": report_date,
@@ -59,10 +70,14 @@ def build_static_snapshot(
         "data_basis": _build_data_basis(report_date, market_temperature, sector_df, leader_df),
         "index_quotes": _records(index_df),
         "sectors": _records(sector_df),
-        "industry_sectors": _records(sector_pack.get("industry")),
-        "concept_sectors": _records(sector_pack.get("concept")),
+        "industry_sectors": _records(sector_df[sector_df["board_layer"] == "industry"] if not sector_df.empty and "board_layer" in sector_df.columns else sector_pack.get("industry")),
+        "concept_sectors": _records(sector_df[sector_df["board_layer"] == "concept"] if not sector_df.empty and "board_layer" in sector_df.columns else sector_pack.get("concept")),
         "emotion_observations": _records(sector_pack.get("emotion")),
         "leaders": _records(leader_df),
+        "operating_summary": _serialize_operating_summary(ops),
+        "board_universe_count": int(sector_pack.get("source_board_count", len(sector_df) if sector_df is not None else 0)),
+        "source_industry_count": int(sector_pack.get("source_industry_count", 0)),
+        "source_concept_count": int(sector_pack.get("source_concept_count", 0)),
         "rotation_history": _records(rotation_pack.get("history")),
         "rotation_migration": _records(rotation_pack.get("migration")),
         "rotation_summary": _records(rotation_pack.get("summary")),
@@ -90,6 +105,7 @@ def build_static_snapshot(
     history_file = history_dir / f"{report_date}.html"
     history_file.write_text(_clean_text(render_daily_page(snapshot, is_history=True)), encoding="utf-8")
     _write_history_index(history_dir)
+    self_check_file = run_self_check(snapshot, output_path)
 
     return {
         "output_dir": str(output_path),
@@ -99,6 +115,7 @@ def build_static_snapshot(
         "sector_count": len(sector_df) if sector_df is not None else 0,
         "leader_count": len(leader_df) if leader_df is not None else 0,
         "history_file": str(history_file),
+        "self_check_report": str(self_check_file),
     }
 
 
@@ -121,13 +138,13 @@ def clean_static_output(output_dir: Path | str = DEFAULT_OUTPUT_DIR) -> None:
 
 
 def render_index_page(snapshot: dict[str, Any]) -> str:
-    """首页。"""
+    """首页：每日决策摘要。"""
     temp = snapshot["market_temperature"]
     metrics = temp.get("metrics", {})
     basis = snapshot.get("data_basis", {})
+    ops = snapshot.get("operating_summary", {})
     sectors = snapshot["sectors"]
-    leaders = snapshot["leaders"]
-    research_leaders, watch_leaders = _split_leaders(leaders)
+    stock_groups = ops.get("stock_groups", {})
     sample_warning = "" if metrics.get("is_full_market_sample", True) else f'<div class="warning">{_e(metrics.get("sample_note", "非全市场样本"))}</div>'
     top_sectors = sectors[:10]
     continuous = [s for s in sectors if s.get("category") == "持续主线"][:6]
@@ -138,7 +155,7 @@ def render_index_page(snapshot: dict[str, Any]) -> str:
     <section class="hero">
       <div>
         <p class="eyebrow">A-Share Trend Radar</p>
-        <h1>A股主线雷达</h1>
+        <h1>A股主线操作系统</h1>
         <p class="muted">生成时间：{_e(snapshot["generated_at"])} · 本页面为静态快照，非实时行情。</p>
       </div>
       <div class="temperature">
@@ -146,6 +163,10 @@ def render_index_page(snapshot: dict[str, Any]) -> str:
         <div class="muted">市场温度 / 100</div>
         <span class="badge">{_e(temp.get("risk_preference", "未知"))}</span>
       </div>
+    </section>
+    <section class="decision-card one-line">
+      <p class="eyebrow">今日一句话</p>
+      <h2>{_e(ops.get("one_liner", "主线数据不足，先观察数据源状态。"))}</h2>
     </section>
     <section class="summary-grid">
       {_metric_card("统计股票数", str(metrics.get('sample_count', metrics.get('total', 0))), metrics.get("sample_note", "全市场样本"))}
@@ -155,6 +176,14 @@ def render_index_page(snapshot: dict[str, Any]) -> str:
     </section>
     {sample_warning}
     {_data_basis_panel(basis)}
+    <section class="panel">
+      <h2>今日 Action</h2>
+      {_action_grid(ops.get("actions", {}))}
+    </section>
+    <section class="panel">
+      <h2>今日变化</h2>
+      {_changes_panel(ops.get("changes", {}))}
+    </section>
     <section class="panel">
       <h2>主要指数</h2>
       {_table(snapshot["index_quotes"], ["index_name", "price", "change_pct", "amount_yi"], {"index_name": "指数", "price": "点位", "change_pct": "涨跌幅%", "amount_yi": "成交额亿"})}
@@ -170,8 +199,15 @@ def render_index_page(snapshot: dict[str, Any]) -> str:
     </section>
     <section class="panel">
       <h2>今日可研究股票池</h2>
-      {_leader_group("可研究候选", research_leaders[:20])}
-      {_leader_group("高位观察/不适合追", watch_leaders[:20])}
+      <div class="stock-columns">
+        {_stock_group_panel("可研究候选", stock_groups.get("可研究候选", [])[:16])}
+        {_stock_group_panel("等待回调", stock_groups.get("等待回调", [])[:16])}
+        {_stock_group_panel("回避 / 不追", stock_groups.get("回避 / 不追", [])[:16])}
+      </div>
+    </section>
+    <section class="panel">
+      <h2>最近 10 日主线趋势</h2>
+      {_history_trend_table(ops.get("history_trends", []))}
     </section>
     """
     return _layout("A股主线雷达", "index", body)
@@ -216,7 +252,7 @@ def render_sectors_page(snapshot: dict[str, Any]) -> str:
 def render_stocks_page(snapshot: dict[str, Any]) -> str:
     """龙头股票池页。"""
     leaders = snapshot["leaders"]
-    research_leaders, watch_leaders = _split_leaders(leaders)
+    stock_groups = snapshot.get("operating_summary", {}).get("stock_groups", {})
     body = f"""
     <section class="page-title">
       <p class="eyebrow">Leader Pool</p>
@@ -225,8 +261,9 @@ def render_stocks_page(snapshot: dict[str, Any]) -> str:
     </section>
     <section class="panel">
       <h2>股票池排名</h2>
-      {_leader_group("可研究候选", research_leaders)}
-      {_leader_group("高位观察/不适合追", watch_leaders)}
+      {_leader_group("可研究候选", stock_groups.get("可研究候选", []))}
+      {_leader_group("等待回调", stock_groups.get("等待回调", []))}
+      {_leader_group("回避 / 不追", stock_groups.get("回避 / 不追", []))}
     </section>
     <section class="stock-list">
       {''.join(_stock_card(stock) for stock in leaders[:40]) if leaders else _empty_state()}
@@ -238,15 +275,20 @@ def render_stocks_page(snapshot: dict[str, Any]) -> str:
 def render_lifecycle_page(snapshot: dict[str, Any]) -> str:
     """生命周期页。"""
     sectors = snapshot["sectors"]
+    trends = snapshot.get("operating_summary", {}).get("history_trends", [])
     body = f"""
     <section class="page-title">
       <p class="eyebrow">Lifecycle</p>
       <h1>主线生命周期</h1>
-      <p class="muted">用趋势、量能、赚钱效应和过热风险把主线分为启动期、主升期、高潮期、分歧期、退潮期、修复期。</p>
+      <p class="muted">用趋势、量能、赚钱效应和过热风险把主线分为启动期、主升期、高潮期、分歧期、退潮期、修复期，并同步显示机会分、风险分和信心分。</p>
     </section>
     <section class="panel">
       <h2>生命周期总览</h2>
       {_lifecycle_table(sectors)}
+    </section>
+    <section class="panel">
+      <h2>最近 10 日评分趋势</h2>
+      {_history_trend_table(trends)}
     </section>
     <section class="sector-list">
       {''.join(_lifecycle_card(sector) for sector in sectors[:24]) if sectors else _empty_state()}
@@ -288,7 +330,7 @@ def render_daily_page(snapshot: dict[str, Any], is_history: bool = False) -> str
     body = f"""
     <section class="page-title">
       <p class="eyebrow">Daily Report</p>
-      <h1>A股主线雷达日报</h1>
+      <h1>A 股主线操作系统日报</h1>
       <p class="muted">日期：{_e(snapshot["report_date"])} · 生成时间：{_e(snapshot["generated_at"])}</p>
     </section>
     <article class="markdown-body">
@@ -330,7 +372,7 @@ def _layout(title: str, active: str, body: str, root_prefix: str = "") -> str:
   <main>{body}</main>
   <footer>
     <span>研究辅助，不构成投资建议。</span>
-    <a href="{root_prefix}data/latest.json">latest.json</a>
+    <span><a href="{root_prefix}data/latest.json">latest.json</a> · <a href="{root_prefix}self_check_report.md">self_check_report.md</a></span>
   </footer>
 </body>
 </html>
@@ -395,6 +437,132 @@ def _split_leaders(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], li
     return research, watch
 
 
+def _action_grid(actions: dict[str, list[dict[str, Any]]]) -> str:
+    """渲染今日 Action 四象限。"""
+    labels = [
+        ("重点研究", "focus"),
+        ("等回调", "wait"),
+        ("只观察", "observe"),
+        ("回避", "avoid"),
+    ]
+    cards = []
+    for label, tone in labels:
+        rows = actions.get(label, []) if isinstance(actions, dict) else []
+        items = "".join(
+            f"""
+            <li>
+              <strong>{_e(row.get("board_name", ""))}</strong>
+              <span>{_e(row.get("reason", ""))}</span>
+              <small>综合 {_e(row.get("score", ""))} · 机会 {_e(row.get("opportunity_score", ""))} · 风险 {_e(row.get("risk_score", ""))} · 信心 {_e(row.get("confidence_score", ""))}</small>
+            </li>
+            """
+            for row in rows
+        )
+        cards.append(
+            f"""
+            <div class="action-card {tone}">
+              <h3>{_action_icon(label)} {_e(label)}</h3>
+              <ul>{items or '<li><strong>暂无</strong><span>当前没有符合条件的主线。</span></li>'}</ul>
+            </div>
+            """
+        )
+    return f'<div class="action-grid">{"".join(cards)}</div>'
+
+
+def _changes_panel(changes: dict[str, Any]) -> str:
+    """渲染今日变化。"""
+    if not changes or not changes.get("history_available"):
+        return f'<div class="empty">{_e(changes.get("message", "暂无昨日数据，请连续运行后查看变化。") if changes else "暂无昨日数据，请连续运行后查看变化。")}</div>'
+    sections = [
+        ("新增主线", changes.get("new_sectors", []), None),
+        ("退出主线", changes.get("exited_sectors", []), None),
+        ("评分上升最多", changes.get("score_gainers", []), "delta"),
+        ("评分下降最多", changes.get("score_losers", []), "delta"),
+        ("生命周期变化", changes.get("lifecycle_changes", []), "text"),
+        ("龙头切换", changes.get("leader_switches", []), "text"),
+    ]
+    parts = []
+    for title, rows, mode in sections:
+        parts.append(
+            f"""
+            <div class="change-block">
+              <h3>{_e(title)}</h3>
+              <ul>{_change_items(rows, mode)}</ul>
+            </div>
+            """
+        )
+    return f'<p class="muted">对比日期：{_e(changes.get("previous_date", ""))}</p><div class="change-grid">{"".join(parts)}</div>'
+
+
+def _change_items(rows: list[Any], mode: str | None) -> str:
+    """今日变化列表项。"""
+    if not rows:
+        return "<li>暂无</li>"
+    items = []
+    for row in rows[:6]:
+        if mode == "delta" and isinstance(row, dict):
+            items.append(
+                f"<li>{_e(row.get('sector_name', ''))}：{_fmt(row.get('from'), 1)} → {_fmt(row.get('to'), 1)}（{_fmt(row.get('delta'), 1)}）</li>"
+            )
+        elif mode == "text" and isinstance(row, dict):
+            items.append(f"<li>{_e(row.get('text', ''))}</li>")
+        else:
+            items.append(f"<li>{_e(row)}</li>")
+    return "".join(items)
+
+
+def _action_icon(label: str) -> str:
+    """Action 标题符号。"""
+    return {
+        "重点研究": "✅",
+        "等回调": "⏳",
+        "只观察": "⚠️",
+        "回避": "🚫",
+    }.get(label, "")
+
+
+def _stock_group_panel(title: str, rows: list[dict[str, Any]]) -> str:
+    """首页股票池三栏。"""
+    items = "".join(
+        f"""
+        <li>
+          <strong>{_e(row.get("name", ""))} <span>{_e(row.get("code", ""))}</span></strong>
+          <em>{_e(row.get("observe_status", ""))}</em>
+          <small>{_e(row.get("board_name", ""))}</small>
+          <small>{_e(row.get("stock_group_reason", ""))}</small>
+        </li>
+        """
+        for row in rows
+    )
+    return f"""
+    <div class="stock-group">
+      <h3>{_e(title)}</h3>
+      <ul>{items or '<li><strong>暂无</strong><small>当前没有符合条件的股票。</small></li>'}</ul>
+    </div>
+    """
+
+
+def _history_trend_table(rows: list[dict[str, Any]]) -> str:
+    """最近 10 日主线趋势表。"""
+    if not rows:
+        return '<div class="empty">暂无历史趋势，请连续运行后查看。</div>'
+    return _table(
+        rows,
+        ["date", "sector_name", "rank", "score", "opportunity_score", "risk_score", "confidence_score", "lifecycle_stage", "action"],
+        {
+            "date": "日期",
+            "sector_name": "主线",
+            "rank": "排名",
+            "score": "综合分",
+            "opportunity_score": "机会分",
+            "risk_score": "风险分",
+            "confidence_score": "信心分",
+            "lifecycle_stage": "生命周期",
+            "action": "Action",
+        },
+    )
+
+
 def _leader_group(title: str, rows: list[dict[str, Any]]) -> str:
     """带标题的股票池分组。"""
     return f"""
@@ -409,15 +577,39 @@ def _sector_table(rows: list[dict[str, Any]]) -> str:
     """板块表。"""
     return _table(
         rows,
-        ["rank", "board_name", "board_layer", "category", "lifecycle_state", "lifecycle_recommendation", "score", "rank_stability_score", "flow_score_label", "flow_score", "change_pct", "ret_5d", "ret_10d", "amount_ratio_20", "up_ratio", "top_stocks"],
+        [
+            "rank",
+            "board_name",
+            "board_layer",
+            "category",
+            "action",
+            "lifecycle_state",
+            "score",
+            "opportunity_score",
+            "risk_score",
+            "confidence_score",
+            "rank_stability_score",
+            "flow_score_label",
+            "flow_score",
+            "change_pct",
+            "ret_5d",
+            "ret_10d",
+            "amount_ratio_20",
+            "up_ratio",
+            "top_stocks",
+        ],
         {
             "rank": "排名",
             "board_name": "板块",
             "board_layer": "分层",
             "category": "分类",
+            "action": "Action",
             "lifecycle_state": "生命周期",
             "lifecycle_recommendation": "建议",
             "score": "综合分",
+            "opportunity_score": "机会分",
+            "risk_score": "风险分",
+            "confidence_score": "信心分",
             "rank_stability_score": "稳定性",
             "flow_score_label": "资金/代理类型",
             "flow_score": "流/活跃分",
@@ -440,6 +632,10 @@ def _lifecycle_table(rows: list[dict[str, Any]]) -> str:
             "board_name",
             "board_layer",
             "score",
+            "opportunity_score",
+            "risk_score",
+            "confidence_score",
+            "action",
             "lifecycle_state",
             "lifecycle_progress",
             "lifecycle_recommendation",
@@ -456,6 +652,10 @@ def _lifecycle_table(rows: list[dict[str, Any]]) -> str:
             "board_name": "主线",
             "board_layer": "分层",
             "score": "综合分",
+            "opportunity_score": "机会分",
+            "risk_score": "风险分",
+            "confidence_score": "信心分",
+            "action": "Action",
             "lifecycle_state": "生命周期",
             "lifecycle_progress": "进度",
             "lifecycle_recommendation": "建议",
@@ -492,10 +692,12 @@ def _leader_table(rows: list[dict[str, Any]]) -> str:
     return _table(
         rows,
         [
-            "pool_group",
+            "stock_research_group",
             "code",
             "name",
             "board_name",
+            "matched_lifecycle",
+            "matched_action",
             "leader_score",
             "research_priority_score",
             "price",
@@ -511,14 +713,17 @@ def _leader_table(rows: list[dict[str, Any]]) -> str:
             "distance_ma20_pct",
             "trend_status",
             "observe_status",
+            "stock_group_reason",
             "price_check_status",
             "invalid_condition",
         ],
         {
-            "pool_group": "分组",
+            "stock_research_group": "分组",
             "code": "代码",
             "name": "名称",
             "board_name": "主线",
+            "matched_lifecycle": "主线阶段",
+            "matched_action": "主线Action",
             "leader_score": "龙头分",
             "research_priority_score": "研究优先级",
             "price": "价格",
@@ -534,6 +739,7 @@ def _leader_table(rows: list[dict[str, Any]]) -> str:
             "distance_ma20_pct": "距MA20%",
             "trend_status": "趋势",
             "observe_status": "观察状态",
+            "stock_group_reason": "分组原因",
             "price_check_status": "价格校验",
             "invalid_condition": "失效条件",
         },
@@ -598,6 +804,7 @@ def _sector_card(row: dict[str, Any]) -> str:
 def _lifecycle_card(row: dict[str, Any]) -> str:
     """生命周期卡片。"""
     progress = safe_float(row.get("lifecycle_progress"))
+    explanation_items = "".join(f"<li>{_e(item)}</li>" for item in _explanation_items(row.get("score_explanation")))
     return f"""
     <article class="detail-card">
       <div class="card-title">
@@ -609,11 +816,19 @@ def _lifecycle_card(row: dict[str, Any]) -> str:
         <div><dt>进度</dt><dd>{_fmt(progress, 1)} / 100</dd></div>
         <div><dt>建议</dt><dd>{_e(row.get("lifecycle_recommendation", ""))}</dd></div>
         <div><dt>综合分</dt><dd>{_fmt(row.get("score"), 1)}</dd></div>
+        <div><dt>机会 / 风险</dt><dd>{_fmt(row.get("opportunity_score"), 1)} / {_fmt(row.get("risk_score"), 1)}</dd></div>
+        <div><dt>信心指数</dt><dd>{_fmt(row.get("confidence_score"), 1)}</dd></div>
+        <div><dt>今日 Action</dt><dd>{_e(row.get("action", ""))}</dd></div>
+        <div><dt>阶段持续</dt><dd>{_fmt(row.get("stage_days"), 0)} 天</dd></div>
         <div><dt>距 MA20</dt><dd>{_fmt(row.get("distance_ma20_pct"), 2)}%</dd></div>
         <div><dt>10日涨幅</dt><dd>{_fmt(row.get("ret_10d"), 2)}%</dd></div>
         <div><dt>量能倍数</dt><dd>{_fmt(row.get("amount_ratio_20"), 2)}</dd></div>
       </dl>
       <p class="muted">{_e(row.get("lifecycle_explanation", "") or "暂无解释")}</p>
+      <details class="score-explain" open>
+        <summary>为什么是这个分数</summary>
+        <ul>{explanation_items or '<li>暂无评分解释。</li>'}</ul>
+      </details>
     </article>
     """
 
@@ -705,6 +920,44 @@ def _records(df: pd.DataFrame | None) -> list[dict[str, Any]]:
     return json.loads(clean.to_json(orient="records", force_ascii=False))
 
 
+def _serialize_operating_summary(ops: dict[str, Any]) -> dict[str, Any]:
+    """把操作系统摘要转为可写入 latest.json 的结构。"""
+    if not ops:
+        return {}
+    stock_groups = {
+        key: _records(value if isinstance(value, pd.DataFrame) else pd.DataFrame(value))
+        for key, value in (ops.get("stock_groups") or {}).items()
+    }
+    trends = ops.get("history_trends")
+    return {
+        "report_date": ops.get("report_date", ""),
+        "one_liner": ops.get("one_liner", ""),
+        "actions": ops.get("actions", {}),
+        "changes": ops.get("changes", {}),
+        "stock_groups": stock_groups,
+        "history_trends": _records(trends if isinstance(trends, pd.DataFrame) else pd.DataFrame(trends)),
+        "next_observations": ops.get("next_observations", []),
+        "history_available": bool(ops.get("history_available")),
+    }
+
+
+def _explanation_items(value: Any) -> list[str]:
+    """把评分解释字段转成列表。"""
+    if isinstance(value, list):
+        return [str(item) for item in value if str(item)]
+    if isinstance(value, str) and value.strip():
+        text = value.strip()
+        if text.startswith("["):
+            try:
+                parsed = ast.literal_eval(text)
+                if isinstance(parsed, list):
+                    return [str(item) for item in parsed if str(item)]
+            except Exception:
+                pass
+        return [text]
+    return []
+
+
 def _clean_text(content: str) -> str:
     """写静态文件前去掉行尾空白。"""
     return "\n".join(line.rstrip() for line in content.splitlines()) + "\n"
@@ -767,6 +1020,9 @@ def _format_cell(col: str, value: Any) -> str:
         return f"{safe_float(value) * multiplier:.2f}"
     if col in {
         "score",
+        "opportunity_score",
+        "risk_score",
+        "confidence_score",
         "leader_score",
         "research_priority_score",
         "sector_score",
@@ -916,8 +1172,83 @@ h3 { font-size: 17px; }
 .metric-value { font-size: 26px; font-weight: 820; }
 .metric-label { color: var(--ink); margin-top: 4px; font-weight: 700; }
 .metric-note { color: var(--muted); font-size: 13px; margin-top: 3px; }
+.decision-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  padding: 22px;
+  margin: 18px 0;
+}
+.decision-card h2 {
+  margin: 0;
+  font-size: 23px;
+  line-height: 1.45;
+}
 .panel { padding: 20px; margin: 18px 0; }
 .compact { margin: 0; }
+.action-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+.action-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  background: #fbfcfe;
+}
+.action-card.focus { border-top: 4px solid #0f766e; }
+.action-card.wait { border-top: 4px solid #b7791f; }
+.action-card.observe { border-top: 4px solid #64748b; }
+.action-card.avoid { border-top: 4px solid #b42318; }
+.action-card ul, .change-block ul, .stock-group ul {
+  list-style: none;
+  padding: 0;
+  margin: 10px 0 0;
+}
+.action-card li {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+.action-card li:last-child { border-bottom: 0; }
+.action-card strong, .stock-group strong { display: block; }
+.action-card span, .action-card small, .stock-group small {
+  display: block;
+  color: var(--muted);
+  margin-top: 4px;
+  line-height: 1.45;
+}
+.change-grid, .stock-columns {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+.change-block, .stock-group {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  background: #fbfcfe;
+}
+.change-block li {
+  padding: 6px 0;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+}
+.change-block li:last-child { border-bottom: 0; }
+.stock-group li {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+.stock-group li:last-child { border-bottom: 0; }
+.stock-group em {
+  display: inline-flex;
+  margin-top: 5px;
+  font-style: normal;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 750;
+}
 .basis-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -1010,6 +1341,20 @@ dd { margin: 2px 0 0; font-weight: 750; }
   background: #eef7f6;
 }
 .markdown-body li { margin: 7px 0; }
+.score-explain {
+  margin-top: 12px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+.score-explain summary {
+  cursor: pointer;
+  font-weight: 800;
+}
+.score-explain ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: var(--muted);
+}
 .empty {
   padding: 18px;
   color: var(--muted);
@@ -1043,7 +1388,7 @@ footer a { color: var(--accent); font-weight: 700; }
   .hero { grid-template-columns: 1fr; padding: 22px; }
   .temperature { text-align: left; }
   h1 { font-size: 28px; }
-  .summary-grid, .three-columns, .sector-list, .stock-list { grid-template-columns: 1fr; }
+  .summary-grid, .three-columns, .sector-list, .stock-list, .action-grid, .change-grid, .stock-columns { grid-template-columns: 1fr; }
   .basis-grid { grid-template-columns: 1fr; }
   .metric-value { font-size: 23px; }
   table { min-width: 0; }

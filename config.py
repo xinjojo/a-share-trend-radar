@@ -70,6 +70,20 @@ BACKTEST_DEFAULTS = {
 }
 
 
+# 每日主线操作系统默认规则。
+OPERATING_SYSTEM_RULES = {
+    "focus_opportunity_min": 62,
+    "focus_risk_max": 52,
+    "wait_pullback_risk_min": 52,
+    "avoid_risk_min": 72,
+    "high_distance_ma20": 20,
+    "extreme_distance_ma20": 35,
+    "min_market_temperature_for_focus": 45,
+    "history_confidence_days": 10,
+    "full_confidence_days": 20,
+}
+
+
 INDEX_SYMBOLS = {
     "上证指数": "sh000001",
     "沪深300": "sh000300",

@@ -14,7 +14,7 @@ from src.utils import today_str
 
 
 st.set_page_config(page_title="日报", layout="wide")
-st.title("A股主线雷达日报")
+st.title("A 股主线操作系统日报")
 
 
 @st.cache_data(ttl=1200, show_spinner=False)
@@ -36,4 +36,3 @@ with st.spinner("正在生成 Markdown 日报..."):
 
 st.download_button("下载 Markdown", markdown, file_name=f"A股主线雷达日报_{report_date}.md", mime="text/markdown")
 st.markdown(markdown)
-

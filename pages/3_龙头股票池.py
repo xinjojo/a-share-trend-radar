@@ -5,10 +5,13 @@ from __future__ import annotations
 import plotly.graph_objects as go
 import streamlit as st
 
-from config import BOARD_ANALYSIS_LIMIT, EMPTY_HINT
+from config import BOARD_ANALYSIS_LIMIT, EMPTY_HINT, INDEX_SYMBOLS
 from src.data_provider import get_provider
+from src.operating_system import build_operating_system
+from src.scoring import score_market_temperature
 from src.sector_radar import build_sector_radar
 from src.stock_radar import build_leader_pool, get_stock_detail
+from src.utils import today_str
 
 
 st.set_page_config(page_title="龙头股票池", layout="wide")
@@ -19,22 +22,29 @@ st.title("龙头股票池")
 def load_pool():
     """加载股票池。"""
     provider = get_provider()
+    market_df = provider.get_market_quotes()
+    index_df = provider.get_index_quotes(INDEX_SYMBOLS)
+    temperature = score_market_temperature(market_df, index_df)
     radar = build_sector_radar(provider, max_boards=BOARD_ANALYSIS_LIMIT, include_concepts=True)
     pool = build_leader_pool(provider, radar["all"])
-    return radar["all"], pool
+    ops = build_operating_system(temperature, radar["all"], pool, report_date=today_str(), persist=True)
+    return ops["sectors"], pool, ops
 
 
 with st.spinner("正在构建龙头观察池..."):
-    sector_df, leader_df = load_pool()
+    sector_df, leader_df, ops = load_pool()
 
-if leader_df.empty:
+stock_groups = ops.get("stock_groups", {})
+if not stock_groups:
     st.warning(EMPTY_HINT)
 else:
     cols = [
-        "pool_group",
+        "stock_research_group",
         "code",
         "name",
         "board_name",
+        "matched_lifecycle",
+        "matched_action",
         "leader_score",
         "research_priority_score",
         "sector_score",
@@ -54,26 +64,20 @@ else:
         "distance_ma20_pct",
         "trend_status",
         "observe_status",
+        "stock_group_reason",
         "price_check_status",
         "price_check_detail",
         "invalid_condition",
     ]
-    cols = [col for col in cols if col in leader_df.columns]
-    if "pool_group" not in leader_df.columns:
-        leader_df = leader_df.assign(pool_group="高位观察/不适合追")
-    research_df = leader_df[leader_df["pool_group"] == "可研究候选"]
-    watch_df = leader_df[leader_df["pool_group"] != "可研究候选"]
-    tab1, tab2 = st.tabs(["可研究候选", "高位观察/不适合追"])
-    with tab1:
-        if research_df.empty:
-            st.caption("暂无符合克制条件的可研究候选。")
-        else:
-            st.dataframe(research_df[cols].round(2), use_container_width=True, hide_index=True)
-    with tab2:
-        if watch_df.empty:
-            st.caption("暂无高位观察标的。")
-        else:
-            st.dataframe(watch_df[cols].round(2), use_container_width=True, hide_index=True)
+    tabs = st.tabs(["可研究候选", "等待回调", "回避 / 不追"])
+    for tab, name in zip(tabs, ["可研究候选", "等待回调", "回避 / 不追"], strict=False):
+        with tab:
+            data = stock_groups.get(name)
+            if data is None or data.empty:
+                st.caption("暂无符合条件的股票。")
+            else:
+                show_cols = [col for col in cols if col in data.columns]
+                st.dataframe(data[show_cols].round(2), use_container_width=True, hide_index=True)
 
 default_code = leader_df.iloc[0]["code"] if not leader_df.empty else "600519"
 code = st.text_input("输入股票代码查看详情", value=str(default_code))
