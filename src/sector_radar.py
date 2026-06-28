@@ -7,6 +7,7 @@ import pandas as pd
 from config import BOARD_ANALYSIS_LIMIT
 from src.data_provider import AStockDataProvider
 from src.indicators import add_moving_averages, latest_trend_flags
+from src.lifecycle import attach_lifecycle
 from src.scoring import score_sector_dataframe
 from src.utils import safe_float, safe_int, setup_logger
 
@@ -87,6 +88,7 @@ def build_sector_radar(
 
     metrics_df = pd.DataFrame(rows)
     scored = score_sector_dataframe(metrics_df)
+    scored = attach_lifecycle(scored)
     return {
         "all": scored,
         "industry": scored[scored["board_layer"] == "industry"].reset_index(drop=True) if not scored.empty else scored,
@@ -141,6 +143,15 @@ def _build_board_metrics(board: pd.Series, hist: pd.DataFrame, constituents: pd.
     ret_3d = _period_return(enriched, 3)
     ret_5d = _period_return(enriched, 5)
     ret_10d = _period_return(enriched, 10)
+    ret_20d = _period_return(enriched, 20)
+    close = safe_float(flags.get("close"))
+    ma5 = safe_float(flags.get("ma5"))
+    ma10 = safe_float(flags.get("ma10"))
+    ma20 = safe_float(flags.get("ma20"))
+    ma60 = safe_float(flags.get("ma60"))
+    distance_ma20_pct = (close / ma20 - 1) * 100 if close > 0 and ma20 > 0 else 0.0
+    high_open_low_close_count = _high_open_low_close_count(enriched, 5)
+    volume_stall_count = _volume_stall_count(enriched, 5)
 
     # 真实板块资金流不可用时，只计算成交活跃度代理，不写作资金流入。
     activity_3d = amount_3d * max(ret_3d + 8, 0) / 100
@@ -186,7 +197,15 @@ def _build_board_metrics(board: pd.Series, hist: pd.DataFrame, constituents: pd.
         "ret_3d": ret_3d,
         "ret_5d": ret_5d,
         "ret_10d": ret_10d,
-        "ret_20d": safe_float(flags.get("ret_20d")),
+        "ret_20d": ret_20d,
+        "close": close,
+        "ma5": ma5,
+        "ma10": ma10,
+        "ma20": ma20,
+        "ma60": ma60,
+        "distance_ma20_pct": distance_ma20_pct,
+        "high_open_low_close_count": high_open_low_close_count,
+        "volume_stall_count": volume_stall_count,
         "above_ma5": bool(flags.get("above_ma5")),
         "above_ma10": bool(flags.get("above_ma10")),
         "above_ma20": bool(flags.get("above_ma20")),
@@ -222,6 +241,30 @@ def _period_return(df: pd.DataFrame, window: int) -> float:
     if base <= 0:
         return 0.0
     return (latest / base - 1) * 100
+
+
+def _high_open_low_close_count(df: pd.DataFrame, window: int = 5) -> int:
+    """统计近期高开低走次数。"""
+    if df is None or df.empty or not {"open", "close"}.issubset(df.columns):
+        return 0
+    out = df.copy()
+    out["open"] = pd.to_numeric(out["open"], errors="coerce").fillna(0)
+    out["close"] = pd.to_numeric(out["close"], errors="coerce").fillna(0)
+    prev_close = out["close"].shift(1)
+    mask = (out["open"] > prev_close * 1.005) & (out["close"] < out["open"])
+    return int(mask.tail(window).sum())
+
+
+def _volume_stall_count(df: pd.DataFrame, window: int = 5) -> int:
+    """统计近期放量滞涨次数。"""
+    if df is None or df.empty or not {"close", "amount_ratio_20"}.issubset(df.columns):
+        return 0
+    out = df.copy()
+    out["close"] = pd.to_numeric(out["close"], errors="coerce").fillna(0)
+    out["amount_ratio_20"] = pd.to_numeric(out["amount_ratio_20"], errors="coerce").fillna(0)
+    daily_ret = out["close"].pct_change() * 100
+    mask = (out["amount_ratio_20"] >= 1.5) & (daily_ret <= 1.0)
+    return int(mask.tail(window).sum())
 
 
 def get_board_detail(provider: AStockDataProvider, board_code: str, board_name: str = "") -> dict[str, pd.DataFrame]:

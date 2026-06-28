@@ -34,6 +34,42 @@ LEADER_CANDIDATES_PER_SECTOR = 8
 LEADER_STOCKS_PER_SECTOR = 5
 
 
+# V2 生命周期默认规则。页面可覆盖这些阈值，但规则集中维护在配置与 scoring/lifecycle 模块。
+LIFECYCLE_RULES = {
+    "startup_score_min": 55,
+    "main_rise_score_min": 68,
+    "climax_ret_10d": 15,
+    "climax_ret_20d": 25,
+    "climax_distance_ma20": 20,
+    "climax_amount_ratio": 2.0,
+    "climax_limit_up_count": 4,
+    "divergence_up_ratio": 0.45,
+    "divergence_high_open_low_close_count": 2,
+    "divergence_volume_stall_count": 2,
+    "fading_ret_5d": -3,
+    "repair_score_min": 45,
+    "distance_near_ma20": 12,
+}
+
+
+# V2 回测默认参数。回测页面会把这些值作为初始值。
+BACKTEST_DEFAULTS = {
+    "initial_cash": 1_000_000,
+    "market_temperature_threshold": 50,
+    "top_sectors": 3,
+    "stocks_per_sector": 1,
+    "max_positions": 3,
+    "ma20_distance_limit": 25,
+    "stop_loss_pct": -8,
+    "take_profit_pct": 25,
+    "trailing_stop_pct": 10,
+    "enable_trailing_stop": True,
+    "max_holding_days": 20,
+    "exit_if_not_profitable_after_days": 10,
+    "execution_price": "close",
+}
+
+
 INDEX_SYMBOLS = {
     "上证指数": "sh000001",
     "沪深300": "sh000300",

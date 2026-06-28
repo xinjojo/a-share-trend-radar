@@ -103,6 +103,8 @@ else:
         "board_name",
         "board_layer",
         "category",
+        "lifecycle_state",
+        "lifecycle_recommendation",
         "score",
         "rank_stability_score",
         "flow_score_label",
@@ -125,7 +127,20 @@ for tab, name in [(tab1, "持续主线"), (tab2, "短线热点"), (tab3, "退潮
             st.caption("暂无板块进入该分类。")
         else:
             st.dataframe(
-                data[["board_name", "board_layer", "score", "rank_stability_score", "change_pct", "ret_5d", "ret_10d", "top_stocks"]].round(2),
+                data[
+                    [
+                        "board_name",
+                        "board_layer",
+                        "lifecycle_state",
+                        "lifecycle_recommendation",
+                        "score",
+                        "rank_stability_score",
+                        "change_pct",
+                        "ret_5d",
+                        "ret_10d",
+                        "top_stocks",
+                    ]
+                ].round(2),
                 use_container_width=True,
                 hide_index=True,
             )

@@ -18,6 +18,22 @@ def _rank_score(series: pd.Series, higher_is_better: bool = True) -> pd.Series:
     return pct * 100
 
 
+def score_backtest_sector_signal(row: pd.Series | dict) -> float:
+    """历史回测中对单个板块做当日信号评分，不能依赖未来横截面。"""
+    score = 0.0
+    score += clamp((safe_float(row.get("ret_3d")) + 3) / 10 * 15)
+    score += clamp((safe_float(row.get("ret_5d")) + 5) / 16 * 18)
+    score += clamp((safe_float(row.get("ret_10d")) + 8) / 25 * 17)
+    score += clamp((safe_float(row.get("ret_20d")) + 10) / 40 * 10)
+    score += clamp(safe_float(row.get("amount_ratio_20")) / 2.2 * 20)
+    score += 6 if row.get("above_ma5") else 0
+    score += 6 if row.get("above_ma10") else 0
+    score += 8 if row.get("above_ma20") else 0
+    score += 6 if row.get("ma_bull") else 0
+    score -= clamp((safe_float(row.get("distance_ma20_pct")) - 25) / 15 * 16)
+    return round(clamp(score), 1)
+
+
 def score_market_temperature(market_df: pd.DataFrame, index_df: pd.DataFrame) -> dict:
     """计算市场温度 0-100 分。"""
     if market_df is None or market_df.empty:

@@ -17,6 +17,7 @@ import pandas as pd
 from config import BASE_DIR, BOARD_ANALYSIS_LIMIT, INDEX_SYMBOLS
 from src.data_provider import get_provider
 from src.report_generator import generate_daily_report
+from src.rotation import build_rotation_tracker
 from src.scoring import score_market_temperature
 from src.sector_radar import build_sector_radar
 from src.stock_radar import build_leader_pool
@@ -48,6 +49,7 @@ def build_static_snapshot(
     sector_pack = build_sector_radar(provider, max_boards=max_boards, include_concepts=include_concepts)
     sector_df = sector_pack["all"]
     leader_df = build_leader_pool(provider, sector_df)
+    rotation_pack = build_rotation_tracker(sector_df, report_date=report_date, lookback_days=20, persist=True)
     markdown = generate_daily_report(market_temperature, sector_df, leader_df, report_date=report_date)
 
     snapshot = {
@@ -61,6 +63,9 @@ def build_static_snapshot(
         "concept_sectors": _records(sector_pack.get("concept")),
         "emotion_observations": _records(sector_pack.get("emotion")),
         "leaders": _records(leader_df),
+        "rotation_history": _records(rotation_pack.get("history")),
+        "rotation_migration": _records(rotation_pack.get("migration")),
+        "rotation_summary": _records(rotation_pack.get("summary")),
         "daily_report": markdown,
         "data_sources": _collect_sources(market_df, index_df, sector_df, leader_df),
     }
@@ -75,6 +80,8 @@ def build_static_snapshot(
         "index.html": render_index_page(snapshot),
         "sectors.html": render_sectors_page(snapshot),
         "stocks.html": render_stocks_page(snapshot),
+        "lifecycle.html": render_lifecycle_page(snapshot),
+        "rotation.html": render_rotation_page(snapshot),
         "daily.html": render_daily_page(snapshot),
     }
     for filename, content in pages.items():
@@ -228,6 +235,53 @@ def render_stocks_page(snapshot: dict[str, Any]) -> str:
     return _layout("龙头股票池", "stocks", body)
 
 
+def render_lifecycle_page(snapshot: dict[str, Any]) -> str:
+    """生命周期页。"""
+    sectors = snapshot["sectors"]
+    body = f"""
+    <section class="page-title">
+      <p class="eyebrow">Lifecycle</p>
+      <h1>主线生命周期</h1>
+      <p class="muted">用趋势、量能、赚钱效应和过热风险把主线分为启动期、主升期、高潮期、分歧期、退潮期、修复期。</p>
+    </section>
+    <section class="panel">
+      <h2>生命周期总览</h2>
+      {_lifecycle_table(sectors)}
+    </section>
+    <section class="sector-list">
+      {''.join(_lifecycle_card(sector) for sector in sectors[:24]) if sectors else _empty_state()}
+    </section>
+    """
+    return _layout("主线生命周期", "lifecycle", body)
+
+
+def render_rotation_page(snapshot: dict[str, Any]) -> str:
+    """行业轮动页。"""
+    migration = snapshot.get("rotation_migration", [])
+    summary = snapshot.get("rotation_summary", [])
+    history = snapshot.get("rotation_history", [])
+    body = f"""
+    <section class="page-title">
+      <p class="eyebrow">Rotation</p>
+      <h1>行业轮动追踪</h1>
+      <p class="muted">每天记录 Top10 主线，观察资金/热度在不同方向之间的迁移。</p>
+    </section>
+    <section class="panel">
+      <h2>近 20 日主线迁移表</h2>
+      {_table(migration, ["日期", "第一主线", "第二主线", "第三主线", "新增主线", "退潮主线"], {})}
+    </section>
+    <section class="panel">
+      <h2>连续性与迁移状态</h2>
+      {_table(summary, ["board_name", "轮动状态", "连续上榜天数", "首次上榜日期", "最近上榜日期", "当前排名", "排名变化", "分数变化", "生命周期", "生命周期变化", "score"], {"board_name": "主线", "score": "分数"})}
+    </section>
+    <section class="panel">
+      <h2>历史上榜明细</h2>
+      {_table(history, ["report_date", "rank", "board_name", "score", "lifecycle_state", "lifecycle_recommendation"], {"report_date": "日期", "rank": "排名", "board_name": "主线", "score": "分数", "lifecycle_state": "生命周期", "lifecycle_recommendation": "建议"})}
+    </section>
+    """
+    return _layout("行业轮动", "rotation", body)
+
+
 def render_daily_page(snapshot: dict[str, Any], is_history: bool = False) -> str:
     """日报页。"""
     title = f"日报 {snapshot['report_date']}" if is_history else "日报"
@@ -251,6 +305,8 @@ def _layout(title: str, active: str, body: str, root_prefix: str = "") -> str:
         ("index", "首页", f"{root_prefix}index.html"),
         ("sectors", "主线", f"{root_prefix}sectors.html"),
         ("stocks", "股票池", f"{root_prefix}stocks.html"),
+        ("lifecycle", "生命周期", f"{root_prefix}lifecycle.html"),
+        ("rotation", "轮动", f"{root_prefix}rotation.html"),
         ("daily", "日报", f"{root_prefix}daily.html"),
         ("history", "历史", history_href),
     ]
@@ -353,12 +409,14 @@ def _sector_table(rows: list[dict[str, Any]]) -> str:
     """板块表。"""
     return _table(
         rows,
-        ["rank", "board_name", "board_layer", "category", "score", "rank_stability_score", "flow_score_label", "flow_score", "change_pct", "ret_5d", "ret_10d", "amount_ratio_20", "up_ratio", "top_stocks"],
+        ["rank", "board_name", "board_layer", "category", "lifecycle_state", "lifecycle_recommendation", "score", "rank_stability_score", "flow_score_label", "flow_score", "change_pct", "ret_5d", "ret_10d", "amount_ratio_20", "up_ratio", "top_stocks"],
         {
             "rank": "排名",
             "board_name": "板块",
             "board_layer": "分层",
             "category": "分类",
+            "lifecycle_state": "生命周期",
+            "lifecycle_recommendation": "建议",
             "score": "综合分",
             "rank_stability_score": "稳定性",
             "flow_score_label": "资金/代理类型",
@@ -369,6 +427,45 @@ def _sector_table(rows: list[dict[str, Any]]) -> str:
             "amount_ratio_20": "量能倍数",
             "up_ratio": "上涨占比",
             "top_stocks": "核心成分股",
+        },
+    )
+
+
+def _lifecycle_table(rows: list[dict[str, Any]]) -> str:
+    """生命周期表。"""
+    return _table(
+        rows,
+        [
+            "rank",
+            "board_name",
+            "board_layer",
+            "score",
+            "lifecycle_state",
+            "lifecycle_progress",
+            "lifecycle_recommendation",
+            "ret_5d",
+            "ret_10d",
+            "ret_20d",
+            "amount_ratio_20",
+            "up_ratio",
+            "distance_ma20_pct",
+            "limit_up_count",
+        ],
+        {
+            "rank": "排名",
+            "board_name": "主线",
+            "board_layer": "分层",
+            "score": "综合分",
+            "lifecycle_state": "生命周期",
+            "lifecycle_progress": "进度",
+            "lifecycle_recommendation": "建议",
+            "ret_5d": "5日%",
+            "ret_10d": "10日%",
+            "ret_20d": "20日%",
+            "amount_ratio_20": "量能倍数",
+            "up_ratio": "上涨占比",
+            "distance_ma20_pct": "距MA20%",
+            "limit_up_count": "涨停数",
         },
     )
 
@@ -494,6 +591,29 @@ def _sector_card(row: dict[str, Any]) -> str:
         <div><dt>量能倍数</dt><dd>{_fmt(row.get("amount_ratio_20"), 2)}</dd></div>
       </dl>
       <p class="muted">核心成分股：{_e(row.get("top_stocks", "") or "暂无")}</p>
+    </article>
+    """
+
+
+def _lifecycle_card(row: dict[str, Any]) -> str:
+    """生命周期卡片。"""
+    progress = safe_float(row.get("lifecycle_progress"))
+    return f"""
+    <article class="detail-card">
+      <div class="card-title">
+        <h3>{_e(row.get("board_name", ""))}</h3>
+        <span class="badge">{_e(row.get("lifecycle_state", ""))}</span>
+      </div>
+      <div class="score-line"><span style="width:{progress}%"></span></div>
+      <dl>
+        <div><dt>进度</dt><dd>{_fmt(progress, 1)} / 100</dd></div>
+        <div><dt>建议</dt><dd>{_e(row.get("lifecycle_recommendation", ""))}</dd></div>
+        <div><dt>综合分</dt><dd>{_fmt(row.get("score"), 1)}</dd></div>
+        <div><dt>距 MA20</dt><dd>{_fmt(row.get("distance_ma20_pct"), 2)}%</dd></div>
+        <div><dt>10日涨幅</dt><dd>{_fmt(row.get("ret_10d"), 2)}%</dd></div>
+        <div><dt>量能倍数</dt><dd>{_fmt(row.get("amount_ratio_20"), 2)}</dd></div>
+      </dl>
+      <p class="muted">{_e(row.get("lifecycle_explanation", "") or "暂无解释")}</p>
     </article>
     """
 
@@ -650,6 +770,7 @@ def _format_cell(col: str, value: Any) -> str:
         "leader_score",
         "research_priority_score",
         "sector_score",
+        "lifecycle_progress",
         "price",
         "quote_price",
         "current_price",
@@ -665,6 +786,8 @@ def _format_cell(col: str, value: Any) -> str:
         "ma10",
         "ma60",
         "distance_ma20_pct",
+        "分数变化",
+        "score",
     }:
         return _fmt(value, 2)
     return _e(value)

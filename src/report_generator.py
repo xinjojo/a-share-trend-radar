@@ -115,6 +115,7 @@ def _sector_lines(df: pd.DataFrame) -> list[str]:
         lines.append(
             f"- {row.get('board_name', '')}：综合分 {row.get('score', 0)}，"
             f"分类 {row.get('category', '')}，"
+            f"生命周期 {row.get('lifecycle_state', '未知')}（{row.get('lifecycle_recommendation', '观察')}），"
             f"当日涨幅 {pct_text(row.get('change_pct', 0))}，"
             f"5日涨幅 {pct_text(row.get('ret_5d', 0))}，"
             f"10日涨幅 {pct_text(row.get('ret_10d', 0))}，"

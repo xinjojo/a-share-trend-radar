@@ -384,6 +384,57 @@ class AStockDataProvider:
             self.logger.exception("腾讯指数行情失败: %s", exc)
             return empty_df()
 
+    @file_cache(ttl_seconds=HISTORY_CACHE_TTL_SECONDS)
+    def get_index_history(self, symbol: str, limit: int = 260) -> pd.DataFrame:
+        """指数历史日 K，用于回测基准和市场温度代理。"""
+        try:
+            secid = self._index_secid(symbol)
+            url = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
+            params = {
+                "secid": secid,
+                "fields1": "f1,f2,f3,f4,f5,f6",
+                "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61",
+                "klt": "101",
+                "fqt": "0",
+                "lmt": str(limit),
+                "end": "20500101",
+            }
+            resp = em_get(url, params=params, headers={"User-Agent": UA, "Referer": "https://quote.eastmoney.com/"})
+            rows = (resp.json().get("data") or {}).get("klines") or []
+            parsed = []
+            for line in rows:
+                parts = line.split(",")
+                if len(parts) >= 11:
+                    parsed.append(
+                        {
+                            "date": parts[0],
+                            "open": safe_float(parts[1]),
+                            "close": safe_float(parts[2]),
+                            "high": safe_float(parts[3]),
+                            "low": safe_float(parts[4]),
+                            "volume": safe_float(parts[5]),
+                            "amount": safe_float(parts[6]),
+                            "amount_yi": safe_float(parts[6]) / 1e8,
+                            "amplitude_pct": safe_float(parts[7]),
+                            "change_pct": safe_float(parts[8]),
+                            "change_amt": safe_float(parts[9]),
+                            "turnover_pct": safe_float(parts[10]),
+                            "data_source": "a-stock-data:eastmoney_index_kline",
+                        }
+                    )
+            return pd.DataFrame(parsed).tail(limit).reset_index(drop=True)
+        except Exception as exc:
+            self.logger.exception("指数历史K线失败 %s: %s", symbol, exc)
+            return empty_df()
+
+    def _index_secid(self, symbol: str) -> str:
+        """把 sh000300/sz399001 转成东财指数 secid。"""
+        text = str(symbol).strip().lower()
+        code = normalize_code(text)
+        if text.startswith("sh") or code.startswith(("000", "880", "899")):
+            return f"1.{code}"
+        return f"0.{code}"
+
     def tencent_quote(self, codes: list[str]) -> dict[str, dict]:
         """腾讯财经批量行情，适合指数和已知个股列表。"""
         if not codes:
