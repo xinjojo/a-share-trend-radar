@@ -45,6 +45,8 @@ else:
         "board_name",
         "matched_lifecycle",
         "matched_action",
+        "priority",
+        "priority_score",
         "leader_score",
         "research_priority_score",
         "sector_score",

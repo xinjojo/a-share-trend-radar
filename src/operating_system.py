@@ -11,6 +11,13 @@ from typing import Any
 import pandas as pd
 
 from src.database import get_connection, init_db
+from src.explainability import (
+    build_today_conclusion,
+    build_why_today,
+    enrich_sector_explainability,
+    enrich_stock_explainability,
+    market_explanation,
+)
 from src.history_db import save_radar_history_snapshot
 from src.scoring import enrich_operating_scores
 from src.utils import safe_float, safe_int, setup_logger, today_str
@@ -39,13 +46,18 @@ def build_operating_system(
     sectors = sectors.sort_values(["score", "opportunity_score"], ascending=False).reset_index(drop=True)
     sectors["rank"] = range(1, len(sectors) + 1)
     sectors = _apply_final_action_recommendations(sectors)
+    sectors = enrich_sector_explainability(sectors)
     if persist and not sectors.empty:
         save_sector_snapshots(report_date, sectors, market_temperature)
     history = load_sector_snapshots(lookback_days=30)
     changes = build_today_changes(history, sectors, report_date, market_temperature)
     stock_groups = build_stock_groups(leader_df, sectors)
+    stock_groups = enrich_stock_explainability(stock_groups, sectors)
     actions = build_today_actions(sectors, stock_groups)
-    one_liner = generate_one_liner(market_temperature, sectors, changes, stock_groups)
+    today_conclusion = build_today_conclusion(market_temperature, sectors, stock_groups)
+    why_today = build_why_today(market_temperature, sectors, changes)
+    market_reason = market_explanation(market_temperature, changes)
+    one_liner = "；".join(today_conclusion)
     history_snapshot = {}
     if persist:
         try:
@@ -68,6 +80,9 @@ def build_operating_system(
         "report_date": report_date,
         "sectors": sectors,
         "one_liner": one_liner,
+        "today_conclusion": today_conclusion,
+        "why_today": why_today,
+        "market_explanation": market_reason,
         "actions": actions,
         "changes": changes,
         "stock_groups": stock_groups,
@@ -306,6 +321,7 @@ def build_today_actions(
                 {
                     "board_name": board_name,
                     "reason": str(row.get("action_reason", "")),
+                    "explanation": str(row.get("action_explanation", "")),
                     "score": f"{safe_float(row.get('score')):.1f}",
                     "opportunity_score": f"{safe_float(row.get('opportunity_score')):.1f}",
                     "risk_score": f"{safe_float(row.get('risk_score')):.1f}",

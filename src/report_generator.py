@@ -40,28 +40,32 @@ def generate_daily_report(
         "> 本报告仅用于研究辅助，不构成投资建议。",
         "> 3 分钟摘要：先看今日一句话、今日 Action 和今日变化，再看股票池与风险方向。",
         "",
-        "## 1. 今日一句话",
+        "## 1. 今日结论",
         "",
-        ops_summary.get("one_liner", "主线数据不足，先观察数据源状态。"),
+        *_today_conclusion_lines(ops_summary),
         "",
-        "## 2. 市场温度变化",
+        "## 2. 为什么今天这样判断",
+        "",
+        ops_summary.get("why_today", "主线数据不足，先观察数据源状态。"),
+        "",
+        "## 3. 市场温度变化",
         "",
     ]
     lines.extend(_market_temperature_lines(market_temperature, changes, metrics))
 
-    lines.extend(["", "## 3. 今日 Action", ""])
+    lines.extend(["", "## 4. 今日 Action", ""])
     lines.extend(_action_lines(ops_summary.get("actions", {})))
 
-    lines.extend(["", "## 4. 今日变化", ""])
+    lines.extend(["", "## 5. 今日变化", ""])
     lines.extend(_change_lines(changes))
 
-    lines.extend(["", "## 5. Top 主线解释", ""])
+    lines.extend(["", "## 6. Top 主线解释", ""])
     lines.extend(_top_sector_explanations(sector_df.head(5)))
 
-    lines.extend(["", "## 6. 可研究股票池", ""])
+    lines.extend(["", "## 7. 可研究股票池", ""])
     lines.extend(_stock_group_lines(stock_groups.get("可研究候选"), limit=10))
 
-    lines.extend(["", "## 7. 强主线回调观察", ""])
+    lines.extend(["", "## 8. 强主线回调观察", ""])
     lines.extend(
         _stock_group_lines(
             stock_groups.get("强主线回调观察"),
@@ -70,11 +74,11 @@ def generate_daily_report(
         )
     )
 
-    lines.extend(["", "## 8. 高位风险池", ""])
+    lines.extend(["", "## 9. 高位风险池", ""])
     high_risk = _concat_groups(stock_groups.get("高位观察/不追"), stock_groups.get("等待回调"))
     lines.extend(_stock_group_lines(high_risk, limit=10, empty_text="暂无高位风险标的。"))
 
-    lines.extend(["", "## 9. 退潮/回避方向", ""])
+    lines.extend(["", "## 10. 退潮/回避方向", ""])
     avoid_sectors = sector_df[sector_df.get("action", pd.Series(dtype=str)) == "回避"] if not sector_df.empty and "action" in sector_df.columns else pd.DataFrame()
     lines.extend(_sector_lines(avoid_sectors.head(8), compact=True))
     lines.extend(_stock_group_lines(stock_groups.get("回避"), limit=8, empty_text="暂无回避股票池。"))
@@ -82,7 +86,7 @@ def generate_daily_report(
     lines.extend(
         [
             "",
-            "## 10. 下个交易日最重要的 3 个观察点",
+            "## 11. 下个交易日最重要的 3 个观察点",
             "",
         ]
     )
@@ -124,6 +128,14 @@ def _market_temperature_lines(market_temperature: dict, changes: dict[str, Any],
     return lines
 
 
+def _today_conclusion_lines(ops_summary: dict[str, Any]) -> list[str]:
+    """日报首页结论 4-6 行。"""
+    lines = ops_summary.get("today_conclusion") or []
+    if not lines:
+        return [ops_summary.get("one_liner", "主线数据不足，先观察数据源状态。")]
+    return [f"- {item}" for item in lines[:6]]
+
+
 def _action_lines(actions: dict[str, list[dict[str, Any]]]) -> list[str]:
     """今日 Action Markdown。"""
     lines = []
@@ -133,7 +145,7 @@ def _action_lines(actions: dict[str, list[dict[str, Any]]]) -> list[str]:
             lines.append(f"- {label}：暂无。")
             continue
         text = "；".join(
-            f"{row.get('board_name', '')}（{row.get('reason', '')}{_signal_note_text(row)}，机会 {row.get('opportunity_score', '')}，风险 {row.get('risk_score', '')}，信心 {row.get('confidence_score', '')}）"
+            f"{row.get('board_name', '')}（{row.get('explanation') or row.get('reason', '')}{_signal_note_text(row)}，机会 {row.get('opportunity_score', '')}，风险 {row.get('risk_score', '')}，信心 {row.get('confidence_score', '')}）"
             for row in rows[:3]
         )
         lines.append(f"- {label}：{text}。")
@@ -161,9 +173,11 @@ def _top_sector_explanations(df: pd.DataFrame) -> list[str]:
     lines = []
     for _, row in df.iterrows():
         explanation = "；".join(_as_list(row.get("score_explanation"))[:4])
+        action_explanation = row.get("action_explanation", row.get("action_reason", ""))
         lines.append(
             f"- {row.get('board_name', '')}：综合分 {row.get('score', 0)}，机会 {row.get('opportunity_score', 0)}，"
-            f"风险 {row.get('risk_score', 0)}，信心 {row.get('confidence_score', 0)}；Action：{row.get('action', '')}；{explanation}。"
+            f"风险 {row.get('risk_score', 0)}，信心 {row.get('confidence_score', 0)}；Action：{row.get('action', '')}；"
+            f"Action解释：{action_explanation}；评分解释：{explanation}。"
         )
     return lines
 
@@ -175,13 +189,21 @@ def _stock_group_lines(df: pd.DataFrame | None, limit: int = 10, empty_text: str
     lines = []
     for _, row in df.head(limit).iterrows():
         lines.append(
-            f"- {row.get('name', '')}({row.get('code', '')})：{row.get('observe_status', '')}，"
+            f"- {row.get('name', '')}({row.get('code', '')})：Priority {row.get('priority', '')}，{row.get('observe_status', '')}，"
             f"所属主线 {row.get('board_name', '')}，"
             f"close={safe_float(row.get('close')):.2f}，MA20={safe_float(row.get('ma20')):.2f}，"
             f"距MA20={safe_float(row.get('distance_ma20_pct')):.2f}%，"
-            f"价格口径={row.get('price_basis', '不复权')}，原因：{row.get('stock_group_reason', '')}"
+            f"价格口径={row.get('price_basis', '不复权')}，原因：{_reason_text(row)}；排序解释：{row.get('why_not_first', '')}"
         )
     return lines
+
+
+def _reason_text(row: pd.Series | dict) -> str:
+    """日报股票推荐原因。"""
+    reasons = _as_list(row.get("recommendation_reasons"))
+    if reasons:
+        return "；".join(reasons[:5])
+    return str(row.get("stock_group_reason", ""))
 
 
 def _sector_lines(df: pd.DataFrame, compact: bool = False) -> list[str]:

@@ -17,6 +17,8 @@ import pandas as pd
 
 from config import BASE_DIR, BOARD_ANALYSIS_LIMIT, INDEX_SYMBOLS
 from src.data_provider import get_provider
+from src.evidence import build_evidence_summary
+from src.learning import build_optimization_report
 from src.operating_system import build_operating_system
 from src.report_generator import generate_daily_report
 from src.rotation import build_rotation_tracker
@@ -54,6 +56,8 @@ def build_static_snapshot(
     leader_df = build_leader_pool(provider, sector_df)
     ops = build_operating_system(market_temperature, sector_df, leader_df, report_date=report_date, persist=True)
     sector_df = ops["sectors"]
+    evidence_summary = build_evidence_summary(report_date)
+    optimization_report = build_optimization_report(evidence_summary)
     rotation_pack = build_rotation_tracker(sector_df, report_date=report_date, lookback_days=20, persist=True)
     markdown = generate_daily_report(
         market_temperature,
@@ -75,6 +79,8 @@ def build_static_snapshot(
         "emotion_observations": _records(sector_pack.get("emotion")),
         "leaders": _records(leader_df),
         "operating_summary": _serialize_operating_summary(ops),
+        "evidence_summary": evidence_summary,
+        "optimization_report": optimization_report,
         "board_universe_count": int(sector_pack.get("source_board_count", len(sector_df) if sector_df is not None else 0)),
         "source_industry_count": int(sector_pack.get("source_industry_count", 0)),
         "source_concept_count": int(sector_pack.get("source_concept_count", 0)),
@@ -166,8 +172,12 @@ def render_index_page(snapshot: dict[str, Any]) -> str:
       </div>
     </section>
     <section class="decision-card one-line">
-      <p class="eyebrow">今日一句话</p>
-      <h2>{_e(ops.get("one_liner", "主线数据不足，先观察数据源状态。"))}</h2>
+      <p class="eyebrow">今日结论</p>
+      {_today_conclusion_html(ops)}
+      <details class="why-today" open>
+        <summary>为什么今天这样判断</summary>
+        <p>{_e(ops.get("why_today", "主线数据不足，先观察数据源状态。"))}</p>
+      </details>
     </section>
     <section class="summary-grid">
       {_metric_card("统计股票数", str(metrics.get('sample_count', metrics.get('total', 0))), metrics.get("sample_note", "全市场样本"))}
@@ -176,6 +186,7 @@ def render_index_page(snapshot: dict[str, Any]) -> str:
       {_metric_card("成交额", f"{_fmt(metrics.get('total_amount_yi'), 0)} 亿", "全市场")}
     </section>
     {sample_warning}
+    {_market_reason_panel(ops.get("market_explanation", {}))}
     {_data_basis_panel(basis)}
     {_history_snapshot_panel(ops.get("history_snapshot", {}))}
     <section class="panel">
@@ -350,13 +361,28 @@ def render_v3_page(snapshot: dict[str, Any]) -> str:
     """V3 前向验证说明页。"""
     ops = snapshot.get("operating_summary", {})
     history_status = ops.get("history_snapshot", {})
+    evidence = snapshot.get("evidence_summary", {})
+    optimization = snapshot.get("optimization_report", {})
     body = f"""
     <section class="page-title">
-      <p class="eyebrow">V3 Validation</p>
-      <h1>前向验证与技术信号回测</h1>
-      <p class="muted">V3 不做伪历史主线回测，先保存真实每日快照，再验证个股技术信号，最后再做标注偏差的近似主线历史回放。</p>
+      <p class="eyebrow">Evidence & Learning</p>
+      <h1>前向验证、证据与学习</h1>
+      <p class="muted">不新增页面：V4 把 Evidence 和 Learning 收敛到原验证页。证据不足时明确提示，不伪造历史主线 Action。</p>
     </section>
     {_history_snapshot_panel(history_status)}
+    <section class="panel">
+      <h2>Evidence</h2>
+      <p class="muted">{_e(evidence.get("summary", "暂无证据摘要。"))}</p>
+      <h3>技术信号证据</h3>
+      {_table(evidence.get("technical_rules", []), ["rule", "status", "sample_count", "horizon", "win_rate_pct", "avg_return_pct", "max_drawdown_pct", "period"], {"rule": "规则", "status": "状态", "sample_count": "样本", "horizon": "天数", "win_rate_pct": "胜率%", "avg_return_pct": "平均收益%", "max_drawdown_pct": "最大回撤%", "period": "区间"})}
+      <h3>生命周期证据</h3>
+      {_table(evidence.get("lifecycle_rules", []), ["rule", "status", "sample_count", "avg_score", "avg_opportunity", "avg_risk", "note"], {"rule": "规则", "status": "状态", "sample_count": "样本", "avg_score": "平均综合分", "avg_opportunity": "平均机会分", "avg_risk": "平均风险分", "note": "说明"})}
+    </section>
+    <section class="panel">
+      <h2>Learning Engine</h2>
+      <p class="muted">{_e(optimization.get("policy", "只生成建议，不自动修改权重。"))}</p>
+      {_optimization_cards(optimization)}
+    </section>
     <section class="panel">
       <h2>三阶段路径</h2>
       <div class="three-columns">
@@ -518,6 +544,29 @@ def _history_snapshot_panel(status: dict[str, Any]) -> str:
     """
 
 
+def _today_conclusion_html(ops: dict[str, Any]) -> str:
+    """渲染 4-6 行今日结论。"""
+    lines = ops.get("today_conclusion") or []
+    if not lines:
+        lines = [ops.get("one_liner", "主线数据不足，先观察数据源状态。")]
+    items = "".join(f"<li>{_e(item)}</li>" for item in lines[:6])
+    return f'<ul class="conclusion-list">{items}</ul>'
+
+
+def _market_reason_panel(reason: dict[str, Any]) -> str:
+    """渲染市场温度解释。"""
+    if not reason:
+        return ""
+    items = "".join(f"<li>{_e(item)}</li>" for item in reason.get("items", []) if item)
+    return f"""
+    <section class="panel compact-reason">
+      <h2>为什么是这个市场温度</h2>
+      <p class="muted">{_e(reason.get("summary", ""))}</p>
+      <ul class="evidence-list">{items}</ul>
+    </section>
+    """
+
+
 def _split_leaders(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """按股票池分组拆成主候选和高位观察。"""
     research = [row for row in rows if row.get("pool_group") == "可研究候选"]
@@ -540,7 +589,7 @@ def _action_grid(actions: dict[str, list[dict[str, Any]]]) -> str:
             f"""
             <li>
               <strong>{_e(row.get("board_name", ""))}</strong>
-              <span>{_e(row.get("reason", ""))}</span>
+              <span>{_e(row.get("explanation") or row.get("reason", ""))}</span>
               {_action_note(row)}
               <small>综合 {_e(row.get("score", ""))} · 机会 {_e(row.get("opportunity_score", ""))} · 风险 {_e(row.get("risk_score", ""))} · 信心 {_e(row.get("confidence_score", ""))}</small>
             </li>
@@ -622,6 +671,7 @@ def _stock_group_panel(title: str, rows: list[dict[str, Any]]) -> str:
         f"""
         <li>
           <strong>{_e(row.get("name", ""))} <span>{_e(row.get("code", ""))}</span></strong>
+          <b class="priority">Priority {_e(row.get("priority", ""))}</b>
           <em>{_e(row.get("observe_status", ""))}</em>
           <small>{_e(row.get("board_name", ""))}</small>
           <small>{_e(row.get("stock_group_reason", ""))}</small>
@@ -792,6 +842,8 @@ def _leader_table(rows: list[dict[str, Any]]) -> str:
             "matched_lifecycle",
             "matched_action",
             "leader_score",
+            "priority",
+            "priority_score",
             "research_priority_score",
             "price",
             "price_basis",
@@ -818,6 +870,8 @@ def _leader_table(rows: list[dict[str, Any]]) -> str:
             "matched_lifecycle": "主线阶段",
             "matched_action": "主线Action",
             "leader_score": "龙头分",
+            "priority": "Priority",
+            "priority_score": "研究价值分",
             "research_priority_score": "研究优先级",
             "price": "价格",
             "price_basis": "价格口径",
@@ -876,6 +930,8 @@ def _mini_sector_panel(title: str, rows: list[dict[str, Any]]) -> str:
 
 def _sector_card(row: dict[str, Any]) -> str:
     """板块卡片。"""
+    breakdown = _score_breakdown_html(row.get("score_breakdown"))
+    explanation_items = "".join(f"<li>{_e(item)}</li>" for item in _explanation_items(row.get("score_explanation"))[:8])
     return f"""
     <article class="detail-card">
       <div class="card-title">
@@ -890,6 +946,15 @@ def _sector_card(row: dict[str, Any]) -> str:
         <div><dt>量能倍数</dt><dd>{_fmt(row.get("amount_ratio_20"), 2)}</dd></div>
       </dl>
       <p class="muted">核心成分股：{_e(row.get("top_stocks", "") or "暂无")}</p>
+      <details class="score-explain">
+        <summary>为什么是这个分数</summary>
+        {breakdown}
+        <ul>{explanation_items or '<li>暂无评分解释。</li>'}</ul>
+      </details>
+      <details class="score-explain">
+        <summary>为什么是这个 Action</summary>
+        <p>{_e(row.get("action_explanation", row.get("action_reason", "")))}</p>
+      </details>
     </article>
     """
 
@@ -898,6 +963,7 @@ def _lifecycle_card(row: dict[str, Any]) -> str:
     """生命周期卡片。"""
     opportunity = safe_float(row.get("opportunity_score"))
     explanation_items = "".join(f"<li>{_e(item)}</li>" for item in _explanation_items(row.get("score_explanation")))
+    breakdown = _score_breakdown_html(row.get("score_breakdown"))
     return f"""
     <article class="detail-card">
       <div class="card-title">
@@ -919,7 +985,13 @@ def _lifecycle_card(row: dict[str, Any]) -> str:
       <p class="muted">{_e(row.get("lifecycle_explanation", "") or "暂无解释")}</p>
       <details class="score-explain" open>
         <summary>为什么是这个分数</summary>
+        {breakdown}
         <ul>{explanation_items or '<li>暂无评分解释。</li>'}</ul>
+      </details>
+      <details class="score-explain">
+        <summary>为什么是这个 Action</summary>
+        <p>{_e(row.get("action_explanation", row.get("action_reason", "")))}</p>
+        <p>{_e(row.get("confidence_explanation", ""))}</p>
       </details>
     </article>
     """
@@ -928,6 +1000,7 @@ def _lifecycle_card(row: dict[str, Any]) -> str:
 def _stock_card(row: dict[str, Any]) -> str:
     """股票卡片。"""
     group = row.get("stock_research_group") or row.get("pool_group", "")
+    reason_items = "".join(f"<li>{_e(item)}</li>" for item in _explanation_items(row.get("recommendation_reasons")))
     return f"""
     <article class="detail-card stock-detail-card" data-stock-code="{_e(row.get("code", ""))}" data-stock-group="{_e(group)}">
       <div class="card-title">
@@ -938,6 +1011,7 @@ def _stock_card(row: dict[str, Any]) -> str:
         <div><dt>分组</dt><dd>{_e(group)}</dd></div>
         <div><dt>所属主线</dt><dd>{_e(row.get("board_name", ""))}</dd></div>
         <div><dt>主线 Action</dt><dd>{_e(row.get("matched_action", ""))}</dd></div>
+        <div><dt>Priority</dt><dd>{_e(row.get("priority", ""))}（{_fmt(row.get("priority_score"), 1)}）</dd></div>
         <div><dt>龙头分</dt><dd>{_fmt(row.get("leader_score"), 1)}</dd></div>
         <div><dt>成交额</dt><dd>{_fmt(row.get("amount_yi"), 1)} 亿</dd></div>
         <div><dt>价格口径</dt><dd>{_e(row.get("price_basis", "不复权"))}</dd></div>
@@ -947,6 +1021,14 @@ def _stock_card(row: dict[str, Any]) -> str:
         <div><dt>价格校验</dt><dd>{_e(row.get("price_check_status", ""))}</dd></div>
       </dl>
       <p class="muted">失效条件：{_e(row.get("invalid_condition", ""))}</p>
+      <details class="score-explain">
+        <summary>推荐原因</summary>
+        <ul>{reason_items or '<li>暂无推荐原因。</li>'}</ul>
+      </details>
+      <details class="score-explain">
+        <summary>为什么不是第一</summary>
+        <p>{_e(row.get("why_not_first", "暂无排序解释。"))}</p>
+      </details>
     </article>
     """
 
@@ -1037,6 +1119,9 @@ def _serialize_operating_summary(ops: dict[str, Any]) -> dict[str, Any]:
     return {
         "report_date": ops.get("report_date", ""),
         "one_liner": ops.get("one_liner", ""),
+        "today_conclusion": ops.get("today_conclusion", []),
+        "why_today": ops.get("why_today", ""),
+        "market_explanation": ops.get("market_explanation", {}),
         "actions": ops.get("actions", {}),
         "changes": ops.get("changes", {}),
         "stock_groups": stock_groups,
@@ -1062,6 +1147,66 @@ def _explanation_items(value: Any) -> list[str]:
                 pass
         return [text]
     return []
+
+
+def _score_breakdown_html(value: Any) -> str:
+    """渲染评分拆解条。"""
+    items = value if isinstance(value, list) else []
+    if isinstance(value, str) and value.strip().startswith("["):
+        try:
+            parsed = ast.literal_eval(value)
+            if isinstance(parsed, list):
+                items = parsed
+        except Exception:
+            items = []
+    if not items:
+        return '<div class="empty compact-empty">暂无评分拆解。</div>'
+    rows = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        contribution = safe_float(item.get("contribution"))
+        cls = "negative-bar" if contribution < 0 else ""
+        rows.append(
+            f"""
+            <div class="breakdown-row">
+              <div class="breakdown-head">
+                <span>{_e(item.get("label", ""))}</span>
+                <strong>{contribution:+.1f}</strong>
+              </div>
+              <div class="breakdown-bar {cls}"><span style="width:{safe_float(item.get("bar_pct"))}%"></span></div>
+              <small>{_e(item.get("description", ""))}</small>
+            </div>
+            """
+        )
+    return f'<div class="breakdown-list">{"".join(rows)}</div>'
+
+
+def _optimization_cards(report: dict[str, Any]) -> str:
+    """渲染 Learning Engine 优化建议。"""
+    suggestions = report.get("suggestions", []) if isinstance(report, dict) else []
+    if not suggestions:
+        return '<div class="empty">暂无优化建议。</div>'
+    cards = []
+    for item in suggestions:
+        cards.append(
+            f"""
+            <div class="change-block">
+              <h3>{_e(item.get("item", ""))}</h3>
+              <p class="muted">{_e(item.get("reason", ""))}</p>
+              <strong>{_e(item.get("suggested_change", ""))}</strong>
+            </div>
+            """
+        )
+    return f"""
+    <div class="summary-grid">
+      {_metric_card("真实快照天数", str(report.get("snapshot_days", 0)), report.get("status", ""))}
+      {_metric_card("技术信号样本", str(report.get("technical_event_count", 0)), "来自最近一次回测")}
+      {_metric_card("调参策略", "人工复核", "不自动改权重")}
+      {_metric_card("报告状态", report.get("status", ""), "Optimization Report")}
+    </div>
+    <div class="change-grid">{"".join(cards)}</div>
+    """
 
 
 def _clean_text(content: str) -> str:
@@ -1130,6 +1275,7 @@ def _format_cell(col: str, value: Any) -> str:
         "risk_score",
         "confidence_score",
         "leader_score",
+        "priority_score",
         "research_priority_score",
         "sector_score",
         "lifecycle_progress",
@@ -1291,8 +1437,33 @@ h3 { font-size: 17px; }
   font-size: 23px;
   line-height: 1.45;
 }
+.conclusion-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+.conclusion-list li {
+  padding: 9px 11px;
+  border-left: 4px solid var(--accent);
+  background: #f4faf9;
+  border-radius: 6px;
+  font-weight: 760;
+}
+.why-today {
+  margin-top: 14px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+.why-today summary {
+  cursor: pointer;
+  font-weight: 820;
+}
+.why-today p { color: var(--muted); margin: 8px 0 0; }
 .panel { padding: 20px; margin: 18px 0; }
 .compact { margin: 0; }
+.compact-reason { margin-top: 0; }
 .action-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -1363,6 +1534,20 @@ h3 { font-size: 17px; }
   color: var(--accent);
   font-size: 13px;
   font-weight: 750;
+}
+.priority {
+  display: inline-flex;
+  margin-top: 5px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #3730a3;
+  font-size: 12px;
+}
+.evidence-list {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  color: var(--muted);
 }
 .basis-grid {
   display: grid;
@@ -1489,6 +1674,40 @@ dd { margin: 2px 0 0; font-weight: 750; }
   padding-left: 18px;
   color: var(--muted);
 }
+.score-explain p {
+  margin: 8px 0 0;
+  color: var(--muted);
+}
+.breakdown-list {
+  display: grid;
+  gap: 9px;
+  margin: 10px 0 12px;
+}
+.breakdown-row small {
+  display: block;
+  color: var(--muted);
+  margin-top: 3px;
+}
+.breakdown-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-weight: 760;
+}
+.breakdown-bar {
+  height: 8px;
+  background: #edf1f6;
+  border-radius: 999px;
+  overflow: hidden;
+  margin-top: 4px;
+}
+.breakdown-bar span {
+  display: block;
+  height: 100%;
+  background: #0f766e;
+}
+.breakdown-bar.negative-bar span { background: #b42318; }
+.compact-empty { padding: 10px; }
 .empty {
   padding: 18px;
   color: var(--muted);

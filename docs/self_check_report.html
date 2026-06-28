@@ -23,7 +23,7 @@
 <body>
   <main>
     <h1>A 股主线雷达自检报告</h1>
-    <p class="muted">生成时间：2026-06-28T18:31:51</p>
+    <p class="muted">生成时间：2026-06-28T22:52:19</p>
     <section><h2>数据完整性</h2><ul>
                 <li class="pass">
                   <strong>✅ 已通过：股票池数量 &gt; 5000</strong>
@@ -56,7 +56,7 @@
                 </li>
 
                 <li class="pass">
-                  <strong>✅ 已通过：今日一句话非空</strong>
+                  <strong>✅ 已通过：今日结论非空</strong>
                   <p>操作摘要已生成。</p>
 
                 </li>
@@ -68,7 +68,13 @@
                 </li>
                 </ul></section><section><h2>页面完整性</h2><ul>
                 <li class="pass">
-                  <strong>✅ 已通过：首页有今日一句话</strong>
+                  <strong>✅ 已通过：首页有今日结论</strong>
+
+
+                </li>
+
+                <li class="pass">
+                  <strong>✅ 已通过：首页解释今日判断</strong>
 
 
                 </li>
@@ -110,13 +116,25 @@
                 </li>
 
                 <li class="pass">
+                  <strong>✅ 已通过：日报同步 V4 今日结论</strong>
+
+
+                </li>
+
+                <li class="pass">
                   <strong>✅ 已通过：首页/日报/latest.json 生成时间一致</strong>
-                  <p>index.html=2026-06-28T18:31:51，daily.html=2026-06-28T18:31:51，latest.json=2026-06-28T18:31:51</p>
+                  <p>index.html=2026-06-28T22:52:19，daily.html=2026-06-28T22:52:19，latest.json=2026-06-28T22:52:19</p>
 
                 </li>
 
                 <li class="pass">
                   <strong>✅ 已通过：V3 页面标注近似回放限制</strong>
+
+
+                </li>
+
+                <li class="pass">
+                  <strong>✅ 已通过：验证页包含 Evidence/Learning</strong>
 
 
                 </li>
@@ -195,6 +213,54 @@
 
                 <li class="pass">
                   <strong>✅ 已通过：无历史数据时明确提示</strong>
+
+
+                </li>
+                </ul></section><section><h2>解释完整性</h2><ul>
+                <li class="pass">
+                  <strong>✅ 已通过：所有主线都有评分拆解</strong>
+                  <p>异常 0 条。</p>
+
+                </li>
+
+                <li class="pass">
+                  <strong>✅ 已通过：所有主线都有 Action 解释</strong>
+                  <p>异常 0 条。</p>
+
+                </li>
+
+                <li class="pass">
+                  <strong>✅ 已通过：所有股票推荐都有 Priority/推荐原因/排序解释</strong>
+                  <p>异常 0 只。</p>
+
+                </li>
+
+                <li class="pass">
+                  <strong>✅ 已通过：今日 Action 每条都有解释</strong>
+                  <p>异常 0 条。</p>
+
+                </li>
+
+                <li class="pass">
+                  <strong>✅ 已通过：首页有判断解释和市场温度解释</strong>
+
+
+                </li>
+
+                <li class="pass">
+                  <strong>✅ 已通过：主线/生命周期页有分数和 Action 解释</strong>
+
+
+                </li>
+
+                <li class="pass">
+                  <strong>✅ 已通过：股票页有推荐原因、排序解释和 Priority</strong>
+
+
+                </li>
+
+                <li class="pass">
+                  <strong>✅ 已通过：验证页有证据和学习报告</strong>
 
 
                 </li>

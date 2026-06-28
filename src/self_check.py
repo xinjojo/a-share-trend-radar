@@ -31,6 +31,7 @@ def run_self_check(snapshot: dict[str, Any], output_dir: Path | str) -> Path:
         "数据完整性": _check_data_integrity(final_snapshot),
         "页面完整性": _check_page_integrity(final_snapshot, output_path),
         "逻辑完整性": _check_logic_integrity(final_snapshot, output_path),
+        "解释完整性": _check_explainability_integrity(final_snapshot, output_path),
     }
     report_path = output_path / "self_check_report.md"
     generated_at = str(final_snapshot.get("generated_at", datetime.now().isoformat(timespec="seconds")))
@@ -53,7 +54,7 @@ def _check_data_integrity(snapshot: dict[str, Any]) -> list[dict[str, str]]:
         _date_result(data_date),
         _result(bool(snapshot.get("sectors")), "主线表非空", f"输出主线 {len(snapshot.get('sectors', []))} 条。", "检查板块行情、板块历史和评分链路。"),
         _result(bool(snapshot.get("leaders")), "龙头股票池非空", f"输出股票 {len(snapshot.get('leaders', []))} 只。", "检查成分股接口和个股历史 K 线接口。"),
-        _result(bool(snapshot.get("operating_summary", {}).get("one_liner")), "今日一句话非空", "操作摘要已生成。", "检查 operating_system.generate_one_liner。"),
+        _result(bool(snapshot.get("operating_summary", {}).get("today_conclusion")), "今日结论非空", "操作摘要已生成。", "检查 operating_system.build_today_conclusion。"),
         _result(
             bool(snapshot.get("operating_summary", {}).get("history_snapshot", {}).get("saved")),
             "真实历史快照已保存",
@@ -75,13 +76,15 @@ def _check_page_integrity(snapshot: dict[str, Any], output_dir: Path) -> list[di
     index_generated_at = _page_header_generated_at(index)
     daily_generated_at = _page_header_generated_at(daily)
     return [
-        _result("今日一句话" in index, "首页有今日一句话", "", "检查 render_index_page。"),
+        _result("今日结论" in index, "首页有今日结论", "", "检查 render_index_page。"),
+        _result("为什么今天这样判断" in index, "首页解释今日判断", "", "检查 render_index_page。"),
         _result("历史快照已保存" in index, "首页显示历史快照已保存", "", "检查 render_index_page 历史快照状态模块。"),
         _result("今日 Action" in index, "首页有今日 Action", "", "检查 render_index_page。"),
         _result("今日变化" in index, "首页有今日变化", "", "检查 render_index_page。"),
         _result("机会分" in lifecycle and "风险分" in lifecycle, "生命周期页有机会分/风险分", "", "检查 render_lifecycle_page。"),
         _result("进度" not in lifecycle, "生命周期页没有“进度”字段", "", "移除生命周期页 lifecycle_progress 展示，避免退潮期 100/100 误导。"),
         _result("3 分钟摘要" in daily or "3分钟摘要" in daily, "日报页有 3 分钟摘要", "", "在日报开头保留简短摘要说明。"),
+        _result("今日结论" in daily and "为什么今天这样判断" in daily, "日报同步 V4 今日结论", "", "检查 report_generator.generate_daily_report。"),
         _result(
             bool(generated_at)
             and index_generated_at == generated_at
@@ -92,6 +95,7 @@ def _check_page_integrity(snapshot: dict[str, Any], output_dir: Path) -> list[di
             "检查 build_static_snapshot 是否先生成同一个 snapshot，再写 latest.json/index.html/daily.html。",
         ),
         _result("近似回放" in v3 and "成分幸存者偏差" in v3, "V3 页面标注近似回放限制", "", "检查 render_v3_page。"),
+        _result("Evidence" in v3 and "Learning Engine" in v3, "验证页包含 Evidence/Learning", "", "检查 render_v3_page。"),
     ]
 
 
@@ -109,7 +113,6 @@ def _check_logic_integrity(snapshot: dict[str, Any], output_dir: Path) -> list[d
         for row in sectors
         if str(row.get("board_name", "")).strip()
     }
-
     bad_research = [
         row
         for row in research
@@ -204,6 +207,106 @@ def _check_logic_integrity(snapshot: dict[str, Any], output_dir: Path) -> list[d
         _result(proxy_labels_ok, "资金不可用时标注成交活跃度代理", "", "检查 flow_score_label 和 data_basis.fund_basis。"),
         _result(history_message_ok, "无历史数据时明确提示", "", "检查 build_today_changes。"),
     ]
+
+
+def _check_explainability_integrity(snapshot: dict[str, Any], output_dir: Path) -> list[dict[str, str]]:
+    """检查 V4 Explainability 是否进入最终 JSON 和页面。"""
+    sectors = snapshot.get("sectors", []) or []
+    ops = snapshot.get("operating_summary", {})
+    groups = ops.get("stock_groups", {}) or {}
+    actions = ops.get("actions", {}) or {}
+    all_stocks = []
+    for rows in groups.values():
+        all_stocks.extend(rows or [])
+    missing_score = [
+        row for row in sectors if not row.get("score_breakdown") or not row.get("score_explanation")
+    ]
+    missing_action = [
+        row for row in sectors if not str(row.get("action_explanation", "")).strip()
+    ]
+    missing_stock = [
+        row
+        for row in all_stocks
+        if not row.get("priority")
+        or not row.get("recommendation_reasons")
+        or not str(row.get("why_not_first", "")).strip()
+    ]
+    missing_action_items = []
+    for action, rows in actions.items():
+        for row in rows or []:
+            if not str(row.get("explanation") or row.get("reason") or "").strip():
+                missing_action_items.append(f"{action}:{row.get('board_name', '')}")
+    index = _read_text(output_dir / "index.html")
+    sectors_html = _read_text(output_dir / "sectors.html")
+    stocks_html = _read_text(output_dir / "stocks.html")
+    lifecycle_html = _read_text(output_dir / "lifecycle.html")
+    v3_html = _read_text(output_dir / "v3.html")
+    return [
+        _result(
+            not missing_score,
+            "所有主线都有评分拆解",
+            _missing_sector_detail(missing_score),
+            "检查 src.explainability.enrich_sector_explainability 是否写入 score_breakdown。",
+        ),
+        _result(
+            not missing_action,
+            "所有主线都有 Action 解释",
+            _missing_sector_detail(missing_action),
+            "检查 action_explanation 是否进入 latest.json。",
+        ),
+        _result(
+            not missing_stock,
+            "所有股票推荐都有 Priority/推荐原因/排序解释",
+            _missing_stock_detail(missing_stock),
+            "检查 src.explainability.enrich_stock_explainability。",
+        ),
+        _result(
+            not missing_action_items,
+            "今日 Action 每条都有解释",
+            "异常 " + str(len(missing_action_items)) + " 条：" + "；".join(missing_action_items[:8]) if missing_action_items else "异常 0 条。",
+            "检查 build_today_actions 是否带 explanation。",
+        ),
+        _result(
+            "为什么今天这样判断" in index and "为什么是这个市场温度" in index,
+            "首页有判断解释和市场温度解释",
+            "",
+            "检查 render_index_page。",
+        ),
+        _result(
+            "为什么是这个分数" in sectors_html and "为什么是这个 Action" in sectors_html and "为什么是这个分数" in lifecycle_html,
+            "主线/生命周期页有分数和 Action 解释",
+            "",
+            "检查 _sector_card 和 _lifecycle_card。",
+        ),
+        _result(
+            "推荐原因" in stocks_html and "为什么不是第一" in stocks_html and "Priority" in stocks_html,
+            "股票页有推荐原因、排序解释和 Priority",
+            "",
+            "检查 _stock_card。",
+        ),
+        _result(
+            "Evidence" in v3_html and "Optimization Report" in v3_html,
+            "验证页有证据和学习报告",
+            "",
+            "检查 render_v3_page。",
+        ),
+    ]
+
+
+def _missing_sector_detail(rows: list[dict[str, Any]]) -> str:
+    """解释缺失主线详情。"""
+    if not rows:
+        return "异常 0 条。"
+    names = [str(row.get("board_name", "")) for row in rows[:8]]
+    return "异常 " + str(len(rows)) + " 条：" + "、".join(names)
+
+
+def _missing_stock_detail(rows: list[dict[str, Any]]) -> str:
+    """解释缺失股票详情。"""
+    if not rows:
+        return "异常 0 只。"
+    names = [f"{row.get('code', '')}{row.get('name', '')}" for row in rows[:8]]
+    return "异常 " + str(len(rows)) + " 只：" + "、".join(names)
 
 
 def _proxy_label_ok(sectors: list[dict[str, Any]], snapshot: dict[str, Any]) -> bool:

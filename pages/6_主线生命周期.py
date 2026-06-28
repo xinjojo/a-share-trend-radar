@@ -114,6 +114,7 @@ score_cols[1].metric("风险分", f"{selected.get('risk_score', 0):.1f}")
 score_cols[2].metric("信心指数", f"{selected.get('confidence_score', 0):.1f}")
 score_cols[3].metric("阶段持续", f"{selected.get('stage_days', 0)} 天")
 st.info(selected.get("lifecycle_explanation", "暂无解释。"))
+st.caption(selected.get("action_explanation", selected.get("action_reason", "")))
 with st.expander("为什么是这个分数", expanded=True):
     explanation = selected.get("score_explanation", [])
     if not isinstance(explanation, list):
