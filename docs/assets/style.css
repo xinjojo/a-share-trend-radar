@@ -139,6 +139,10 @@ h3 { font-size: 17px; }
   margin-top: 4px;
   line-height: 1.45;
 }
+.action-card .action-note {
+  color: #9a3412;
+  font-weight: 750;
+}
 .change-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -146,7 +150,7 @@ h3 { font-size: 17px; }
 }
 .stock-columns {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 12px;
 }
 .change-block, .stock-group {

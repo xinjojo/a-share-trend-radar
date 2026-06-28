@@ -86,6 +86,11 @@ def _check_logic_integrity(snapshot: dict[str, Any]) -> list[dict[str, str]]:
         or safe_float(row.get("distance_ma20_pct")) > 25
         or "退潮期" in str(row.get("matched_lifecycle", ""))
     ]
+    bad_research_parent = [
+        row
+        for row in research
+        if str(row.get("matched_action", "")).strip() != "重点研究"
+    ]
     bad_focus = [
         row
         for row in sectors
@@ -105,6 +110,12 @@ def _check_logic_integrity(snapshot: dict[str, Any]) -> list[dict[str, str]]:
 
     return [
         _result(not bad_research, "高位/退潮股票未进入可研究候选", f"异常 {len(bad_research)} 只。", "检查 build_stock_groups 分组条件。"),
+        _result(
+            not bad_research_parent,
+            "可研究候选所属主线 Action 必须等于重点研究",
+            f"异常 {len(bad_research_parent)} 只。",
+            "检查 build_stock_groups，个股不能越过父级主线 Action 单独升级。",
+        ),
         _result(not bad_focus, "退潮期主线未进入重点研究", f"异常 {len(bad_focus)} 条。", "检查 determine_action 风险阈值。"),
         _result(not emotion_in_main, "短线情绪标签未进入主线排名", f"异常 {len(emotion_in_main)} 条。", "检查 sector_radar._split_concept_and_emotion。"),
         _result(not duplicate_codes, "股票池按代码去重", f"重复代码：{', '.join(duplicate_codes[:10]) if duplicate_codes else '无'}", "检查 build_stock_groups 去重逻辑。"),

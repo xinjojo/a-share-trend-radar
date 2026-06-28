@@ -42,7 +42,7 @@ def build_operating_system(
     changes = build_today_changes(history, sectors, report_date, market_temperature)
     stock_groups = build_stock_groups(leader_df, sectors)
     one_liner = generate_one_liner(market_temperature, sectors, changes, stock_groups)
-    actions = build_today_actions(sectors)
+    actions = build_today_actions(sectors, stock_groups)
     trends = build_history_trends(history, sectors, lookback_days=10)
     observations = build_next_observations(sectors, changes, stock_groups)
     return {
@@ -261,31 +261,44 @@ def generate_one_liner(
     )
 
 
-def build_today_actions(sectors: pd.DataFrame) -> dict[str, list[dict[str, str]]]:
+def build_today_actions(
+    sectors: pd.DataFrame,
+    stock_groups: dict[str, pd.DataFrame] | None = None,
+) -> dict[str, list[dict[str, str]]]:
     """生成今日 Action 四组。"""
     groups = {"重点研究": [], "等回调": [], "只观察 / 不追": [], "回避": []}
     if sectors is None or sectors.empty or "action" not in sectors.columns:
         return groups
+    candidate_df = (stock_groups or {}).get("可研究候选", pd.DataFrame())
+    candidate_map = _candidate_count_by_sector(candidate_df)
     for action in groups:
         subset = sectors[sectors["action"] == action].sort_values(["opportunity_score", "score"], ascending=False).head(4)
         for _, row in subset.iterrows():
+            board_name = str(row.get("board_name", ""))
+            candidate_count = candidate_map.get(board_name, 0)
+            signal_note = ""
+            if action == "重点研究" and candidate_count <= 0:
+                signal_note = "该主线暂无符合条件个股，等待个股信号；暂无缩量回踩/放量确认个股，暂不列入个股候选。"
             groups[action].append(
                 {
-                    "board_name": str(row.get("board_name", "")),
+                    "board_name": board_name,
                     "reason": str(row.get("action_reason", "")),
                     "score": f"{safe_float(row.get('score')):.1f}",
                     "opportunity_score": f"{safe_float(row.get('opportunity_score')):.1f}",
                     "risk_score": f"{safe_float(row.get('risk_score')):.1f}",
                     "confidence_score": f"{safe_float(row.get('confidence_score')):.1f}",
+                    "candidate_count": str(candidate_count),
+                    "signal_note": signal_note,
                 }
             )
     return groups
 
 
 def build_stock_groups(leader_df: pd.DataFrame, sectors: pd.DataFrame) -> dict[str, pd.DataFrame]:
-    """把股票池拆成可研究候选、等待回调、高位观察/不追、回避四栏。"""
+    """把股票池拆成五栏，并让父级主线 Action 约束个股分组。"""
     groups = {
         "可研究候选": [],
+        "强主线回调观察": [],
         "等待回调": [],
         "高位观察/不追": [],
         "回避": [],
@@ -300,27 +313,41 @@ def build_stock_groups(leader_df: pd.DataFrame, sectors: pd.DataFrame) -> dict[s
             continue
         seen.add(code)
         matched = _matched_sectors(stock, sector_lookup)
+        matched_actions = {str(item.get("action", "")) for item in matched if item.get("action")}
+        matched_names = {str(item.get("board_name", "")) for item in matched if item.get("board_name")}
         sector_retreat = any(item.get("lifecycle_stage") == "退潮期" or item.get("action") == "回避" for item in matched)
-        sector_strong = any(item.get("action") in {"重点研究", "等回调"} for item in matched)
         observe = str(stock.get("observe_status", ""))
         trend = str(stock.get("trend_status", ""))
         distance = safe_float(stock.get("distance_ma20_pct"))
         ret20 = safe_float(stock.get("ret_20d"))
         row = stock.to_dict()
         row["matched_lifecycle"] = " / ".join(sorted({str(item.get("lifecycle_stage", "")) for item in matched if item.get("lifecycle_stage")}))
-        row["matched_action"] = " / ".join(sorted({str(item.get("action", "")) for item in matched if item.get("action")}))
+        row["matched_action"] = " / ".join(sorted(matched_actions))
+        if matched_names:
+            row["board_name"] = " / ".join(sorted(matched_names))
         if sector_retreat or observe == "趋势破坏" or trend == "趋势破坏":
             row["stock_research_group"] = "回避"
             row["stock_group_reason"] = "所属主线退潮/回避，或个股趋势破坏。"
+        elif "只观察 / 不追" in matched_actions:
+            row["stock_research_group"] = "高位观察/不追"
+            row["stock_group_reason"] = "所属主线只观察 / 不追，个股只能进入观察池。"
+        elif "等回调" in matched_actions:
+            row["stock_research_group"] = "强主线回调观察"
+            row["stock_group_reason"] = "主线强但处于高潮或偏热，等待板块回调确认。"
         elif observe in {"高位过热", "不适合追"} or distance > 35:
             row["stock_research_group"] = "高位观察/不追"
             row["stock_group_reason"] = "高位过热、不适合追，或距离 MA20 过远。"
-        elif observe in RESEARCH_STATUSES and trend in {"多头趋势", "上升趋势"} and distance <= 25:
+        elif (
+            matched_actions == {"重点研究"}
+            and observe in RESEARCH_STATUSES
+            and trend in {"多头趋势", "上升趋势"}
+            and distance <= 25
+        ):
             row["stock_research_group"] = "可研究候选"
             row["stock_group_reason"] = f"{observe}，趋势未破坏，距 MA20 {distance:.1f}%。"
-        elif sector_strong and trend in {"多头趋势", "上升趋势"} and (distance > 15 or ret20 > 30 or observe == "等待回调"):
+        elif matched_actions == {"重点研究"} and trend in {"多头趋势", "上升趋势"} and (distance > 15 or ret20 > 30 or observe == "等待回调"):
             row["stock_research_group"] = "等待回调"
-            row["stock_group_reason"] = "主线较强但个股短期偏离较大，等待回调或重新确认。"
+            row["stock_group_reason"] = "主线可研究，但个股偏离 MA20 较远，等待个股回调。"
         else:
             row["stock_research_group"] = "高位观察/不追"
             row["stock_group_reason"] = "不满足回踩/反包候选条件，先不追。"
@@ -431,6 +458,17 @@ def _sector_names(
     if out.empty or "board_name" not in out.columns:
         return ""
     return "、".join(out["board_name"].dropna().astype(str).head(limit).tolist())
+
+
+def _candidate_count_by_sector(candidate_df: pd.DataFrame | None) -> dict[str, int]:
+    """统计每条重点研究主线下符合条件的个股数量。"""
+    counts: dict[str, int] = {}
+    if candidate_df is None or candidate_df.empty or "board_name" not in candidate_df.columns:
+        return counts
+    for board_names in candidate_df["board_name"].dropna().astype(str):
+        for name in [item.strip() for item in board_names.split("/") if item.strip()]:
+            counts[name] = counts.get(name, 0) + 1
+    return counts
 
 
 def _top_stock(row: pd.Series | dict) -> str:

@@ -61,11 +61,20 @@ def generate_daily_report(
     lines.extend(["", "## 6. 可研究股票池", ""])
     lines.extend(_stock_group_lines(stock_groups.get("可研究候选"), limit=10))
 
-    lines.extend(["", "## 7. 高位风险池", ""])
+    lines.extend(["", "## 7. 强主线回调观察", ""])
+    lines.extend(
+        _stock_group_lines(
+            stock_groups.get("强主线回调观察"),
+            limit=10,
+            empty_text="暂无强主线回调观察标的。",
+        )
+    )
+
+    lines.extend(["", "## 8. 高位风险池", ""])
     high_risk = _concat_groups(stock_groups.get("高位观察/不追"), stock_groups.get("等待回调"))
     lines.extend(_stock_group_lines(high_risk, limit=10, empty_text="暂无高位风险标的。"))
 
-    lines.extend(["", "## 8. 退潮/回避方向", ""])
+    lines.extend(["", "## 9. 退潮/回避方向", ""])
     avoid_sectors = sector_df[sector_df.get("action", pd.Series(dtype=str)) == "回避"] if not sector_df.empty and "action" in sector_df.columns else pd.DataFrame()
     lines.extend(_sector_lines(avoid_sectors.head(8), compact=True))
     lines.extend(_stock_group_lines(stock_groups.get("回避"), limit=8, empty_text="暂无回避股票池。"))
@@ -73,7 +82,7 @@ def generate_daily_report(
     lines.extend(
         [
             "",
-            "## 9. 下个交易日最重要的 3 个观察点",
+            "## 10. 下个交易日最重要的 3 个观察点",
             "",
         ]
     )
@@ -124,7 +133,7 @@ def _action_lines(actions: dict[str, list[dict[str, Any]]]) -> list[str]:
             lines.append(f"- {label}：暂无。")
             continue
         text = "；".join(
-            f"{row.get('board_name', '')}（{row.get('reason', '')}，机会 {row.get('opportunity_score', '')}，风险 {row.get('risk_score', '')}，信心 {row.get('confidence_score', '')}）"
+            f"{row.get('board_name', '')}（{row.get('reason', '')}{_signal_note_text(row)}，机会 {row.get('opportunity_score', '')}，风险 {row.get('risk_score', '')}，信心 {row.get('confidence_score', '')}）"
             for row in rows[:3]
         )
         lines.append(f"- {label}：{text}。")
@@ -241,6 +250,12 @@ def _concat_groups(*frames: pd.DataFrame | None) -> pd.DataFrame:
     if not valid:
         return pd.DataFrame()
     return pd.concat(valid, ignore_index=True)
+
+
+def _signal_note_text(row: dict[str, Any]) -> str:
+    """日报 Action 中的个股信号补充说明。"""
+    note = str(row.get("signal_note", "") or "")
+    return f"，{note}" if note else ""
 
 
 def _join_text(items: list[Any] | None) -> str:

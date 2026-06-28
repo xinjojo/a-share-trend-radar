@@ -242,8 +242,9 @@ else:
         "price_check_status",
         "price_check_detail",
     ]
-    pool_tabs = st.tabs(["可研究候选", "等待回调", "高位观察/不追", "回避"])
-    for tab, name in zip(pool_tabs, ["可研究候选", "等待回调", "高位观察/不追", "回避"], strict=False):
+    group_names = ["可研究候选", "强主线回调观察", "等待回调", "高位观察/不追", "回避"]
+    pool_tabs = st.tabs(group_names)
+    for tab, name in zip(pool_tabs, group_names, strict=False):
         with tab:
             data = stock_groups.get(name)
             if data is None or data.empty:

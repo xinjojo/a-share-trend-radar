@@ -201,6 +201,7 @@ def render_index_page(snapshot: dict[str, Any]) -> str:
       <h2>今日可研究股票池</h2>
       <div class="stock-columns">
         {_stock_group_panel("可研究候选", stock_groups.get("可研究候选", [])[:16])}
+        {_stock_group_panel("强主线回调观察", stock_groups.get("强主线回调观察", [])[:16])}
         {_stock_group_panel("等待回调", stock_groups.get("等待回调", [])[:16])}
         {_stock_group_panel("高位观察/不追", stock_groups.get("高位观察/不追", [])[:16])}
         {_stock_group_panel("回避", stock_groups.get("回避", [])[:16])}
@@ -263,6 +264,7 @@ def render_stocks_page(snapshot: dict[str, Any]) -> str:
     <section class="panel">
       <h2>股票池排名</h2>
       {_leader_group("可研究候选", stock_groups.get("可研究候选", []))}
+      {_leader_group("强主线回调观察", stock_groups.get("强主线回调观察", []))}
       {_leader_group("等待回调", stock_groups.get("等待回调", []))}
       {_leader_group("高位观察/不追", stock_groups.get("高位观察/不追", []))}
       {_leader_group("回避", stock_groups.get("回避", []))}
@@ -455,6 +457,7 @@ def _action_grid(actions: dict[str, list[dict[str, Any]]]) -> str:
             <li>
               <strong>{_e(row.get("board_name", ""))}</strong>
               <span>{_e(row.get("reason", ""))}</span>
+              {_action_note(row)}
               <small>综合 {_e(row.get("score", ""))} · 机会 {_e(row.get("opportunity_score", ""))} · 风险 {_e(row.get("risk_score", ""))} · 信心 {_e(row.get("confidence_score", ""))}</small>
             </li>
             """
@@ -521,6 +524,12 @@ def _action_icon(label: str) -> str:
         "只观察 / 不追": "⚠️",
         "回避": "🚫",
     }.get(label, "")
+
+
+def _action_note(row: dict[str, Any]) -> str:
+    """Action 卡片中的个股信号提示。"""
+    note = row.get("signal_note", "")
+    return f'<span class="action-note">{_e(note)}</span>' if note else ""
 
 
 def _stock_group_panel(title: str, rows: list[dict[str, Any]]) -> str:
@@ -1218,6 +1227,10 @@ h3 { font-size: 17px; }
   margin-top: 4px;
   line-height: 1.45;
 }
+.action-card .action-note {
+  color: #9a3412;
+  font-weight: 750;
+}
 .change-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -1225,7 +1238,7 @@ h3 { font-size: 17px; }
 }
 .stock-columns {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 12px;
 }
 .change-block, .stock-group {
