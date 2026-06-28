@@ -371,6 +371,7 @@ def build_stock_groups(leader_df: pd.DataFrame, sectors: pd.DataFrame) -> dict[s
             row["stock_research_group"] = "高位观察/不追"
             row["stock_group_reason"] = "不满足回踩/反包候选条件，先不追。"
         groups[row["stock_research_group"]].append(row)
+    groups = _enforce_stock_group_constraints(groups, sectors)
     return {key: pd.DataFrame(rows) for key, rows in groups.items()}
 
 
@@ -526,6 +527,53 @@ def _sector_lookup(sectors: pd.DataFrame) -> list[dict[str, Any]]:
             }
         )
     return rows
+
+
+def _enforce_stock_group_constraints(
+    groups: dict[str, list[dict[str, Any]]],
+    sectors: pd.DataFrame,
+) -> dict[str, list[dict[str, Any]]]:
+    """按最终展示主线 Action 再做一次硬分流，防止候选池越级。"""
+    action_by_sector = {
+        str(row.get("board_name", "")).strip(): str(row.get("action", "")).strip()
+        for _, row in sectors.iterrows()
+    } if sectors is not None and not sectors.empty else {}
+    corrected = {key: [] for key in groups}
+    for group_name, rows in groups.items():
+        for row in rows:
+            final_group = _constrained_group_name(row, group_name, action_by_sector)
+            if final_group != group_name:
+                row = dict(row)
+                if final_group == "回避":
+                    row["stock_group_reason"] = "最终展示主线 Action 为回避，个股不能进入候选。"
+                elif final_group == "强主线回调观察":
+                    row["stock_group_reason"] = "主线强但处于高潮或偏热，等待板块回调确认。"
+                elif final_group == "高位观察/不追":
+                    row["stock_group_reason"] = "最终展示主线 Action 为只观察 / 不追，个股不能进入候选。"
+                row["stock_research_group"] = final_group
+            corrected[final_group].append(row)
+    return corrected
+
+
+def _constrained_group_name(
+    row: dict[str, Any],
+    current_group: str,
+    action_by_sector: dict[str, str],
+) -> str:
+    """返回父级 Action 约束后的最终股票池分组。"""
+    if current_group != "可研究候选":
+        return current_group
+    names = [item.strip() for item in str(row.get("board_name", "")).split("/") if item.strip()]
+    actions = [action_by_sector.get(name, "") for name in names]
+    if actions and all(action == "重点研究" for action in actions):
+        return current_group
+    if "回避" in actions:
+        return "回避"
+    if "只观察 / 不追" in actions:
+        return "高位观察/不追"
+    if "等回调" in actions:
+        return "强主线回调观察"
+    return "高位观察/不追"
 
 
 def _matched_sectors(stock: pd.Series, sectors: list[dict[str, Any]]) -> list[dict[str, Any]]:

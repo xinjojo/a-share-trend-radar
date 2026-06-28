@@ -20,6 +20,11 @@ def main() -> None:
     data = json.loads(Path(args.snapshot).read_text(encoding="utf-8"))
     leaders = data.get("leaders") or []
     stock_groups = (data.get("operating_summary") or {}).get("stock_groups") or {}
+    action_by_sector = {
+        str(row.get("board_name", "")).strip(): str(row.get("action", "")).strip()
+        for row in data.get("sectors", []) or []
+        if str(row.get("board_name", "")).strip()
+    }
     errors: list[str] = []
 
     grouped_rows = []
@@ -62,6 +67,12 @@ def main() -> None:
             errors.append(f"{code} 距 MA20 超过 25% 仍在可研究候选: {distance_ma20:.2f}%")
         if group == RESEARCH_GROUP and matched_action != "重点研究":
             errors.append(f"{code} 父级主线 Action={matched_action} 却进入可研究候选")
+        if group == RESEARCH_GROUP:
+            names = [item.strip() for item in str(row.get("board_name", "")).split("/") if item.strip()]
+            display_actions = [action_by_sector.get(name, "") for name in names]
+            if not display_actions or any(action != "重点研究" for action in display_actions):
+                detail = " / ".join(f"{name}:{action_by_sector.get(name, '未知')}" for name in names)
+                errors.append(f"{code} 展示主线 Action 不是重点研究却进入可研究候选: {detail}")
 
     if errors:
         raise SystemExit("\n".join(errors))

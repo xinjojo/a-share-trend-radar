@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>A股主线雷达自检报告</title>
+  <style>
+    body { margin: 0; padding: 28px; background: #f5f7fb; color: #202631; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif; }
+    main { max-width: 980px; margin: 0 auto; }
+    section { background: #fff; border: 1px solid #d9e0ea; border-radius: 8px; padding: 18px; margin: 16px 0; }
+    h1 { margin: 0 0 6px; }
+    h2 { margin: 0 0 12px; }
+    ul { list-style: none; padding: 0; margin: 0; }
+    li { border-bottom: 1px solid #edf1f6; padding: 11px 0; }
+    li:last-child { border-bottom: 0; }
+    p { margin: 6px 0 0; color: #667085; }
+    .pass strong { color: #0f766e; }
+    .warn strong { color: #b7791f; }
+    .fail strong { color: #b42318; }
+    .muted { color: #667085; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>A 股主线雷达自检报告</h1>
+    <p class="muted">生成时间：2026-06-28T16:29:32</p>
+    <section><h2>数据完整性</h2><ul>
+                <li class="pass">
+                  <strong>✅ 已通过：股票池数量 &gt; 5000</strong>
+                  <p>本次参与统计 5867 只股票。</p>
+                  
+                </li>
+                
+                <li class="pass">
+                  <strong>✅ 已通过：行业/概念数量 &gt; 50</strong>
+                  <p>原始行业/概念数量 390。</p>
+                  
+                </li>
+                
+                <li class="pass">
+                  <strong>✅ 已通过：当日行情日期为最近交易日</strong>
+                  <p>数据日期：2026-06-26，距今 2 天。</p>
+                  
+                </li>
+                
+                <li class="pass">
+                  <strong>✅ 已通过：主线表非空</strong>
+                  <p>输出主线 16 条。</p>
+                  
+                </li>
+                
+                <li class="pass">
+                  <strong>✅ 已通过：龙头股票池非空</strong>
+                  <p>输出股票 34 只。</p>
+                  
+                </li>
+                
+                <li class="pass">
+                  <strong>✅ 已通过：今日一句话非空</strong>
+                  <p>操作摘要已生成。</p>
+                  
+                </li>
+                
+                <li class="pass">
+                  <strong>✅ 已通过：真实历史快照已保存</strong>
+                  <p>data/radar_history.db</p>
+                  
+                </li>
+                </ul></section><section><h2>页面完整性</h2><ul>
+                <li class="pass">
+                  <strong>✅ 已通过：首页有今日一句话</strong>
+                  
+                  
+                </li>
+                
+                <li class="pass">
+                  <strong>✅ 已通过：首页显示历史快照已保存</strong>
+                  
+                  
+                </li>
+                
+                <li class="pass">
+                  <strong>✅ 已通过：首页有今日 Action</strong>
+                  
+                  
+                </li>
+                
+                <li class="pass">
+                  <strong>✅ 已通过：首页有今日变化</strong>
+                  
+                  
+                </li>
+                
+                <li class="pass">
+                  <strong>✅ 已通过：生命周期页有机会分/风险分</strong>
+                  
+                  
+                </li>
+                
+                <li class="pass">
+                  <strong>✅ 已通过：生命周期页没有“进度”字段</strong>
+                  
+                  
+                </li>
+                
+                <li class="pass">
+                  <strong>✅ 已通过：日报页有 3 分钟摘要</strong>
+                  
+                  
+                </li>
+                
+                <li class="pass">
+                  <strong>✅ 已通过：日报生成时间与首页一致</strong>
+                  <p>生成时间：2026-06-28T16:29:32</p>
+                  
+                </li>
+                
+                <li class="pass">
+                  <strong>✅ 已通过：V3 页面标注近似回放限制</strong>
+                  
+                  
+                </li>
+                </ul></section><section><h2>逻辑完整性</h2><ul>
+                <li class="pass">
+                  <strong>✅ 已通过：高位/退潮股票未进入可研究候选</strong>
+                  <p>异常 0 只。</p>
+                  
+                </li>
+                
+                <li class="pass">
+                  <strong>✅ 已通过：可研究候选所属主线 Action 必须等于重点研究</strong>
+                  <p>异常 0 只。</p>
+                  
+                </li>
+                
+                <li class="pass">
+                  <strong>✅ 已通过：可研究候选展示主线 Action 必须全部为重点研究</strong>
+                  <p>异常 0 只。</p>
+                  
+                </li>
+                
+                <li class="pass">
+                  <strong>✅ 已通过：退潮期主线未进入重点研究</strong>
+                  <p>异常 0 条。</p>
+                  
+                </li>
+                
+                <li class="pass">
+                  <strong>✅ 已通过：短线情绪标签未进入主线排名</strong>
+                  <p>异常 0 条。</p>
+                  
+                </li>
+                
+                <li class="pass">
+                  <strong>✅ 已通过：股票池按代码去重</strong>
+                  <p>重复代码：无</p>
+                  
+                </li>
+                
+                <li class="pass">
+                  <strong>✅ 已通过：资金不可用时标注成交活跃度代理</strong>
+                  
+                  
+                </li>
+                
+                <li class="pass">
+                  <strong>✅ 已通过：无历史数据时明确提示</strong>
+                  
+                  
+                </li>
+                </ul></section>
+  </main>
+</body>
+</html>

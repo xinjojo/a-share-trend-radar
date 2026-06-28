@@ -435,7 +435,7 @@ def _layout(title: str, active: str, body: str, root_prefix: str = "") -> str:
   <main>{body}</main>
   <footer>
     <span>研究辅助，不构成投资建议。</span>
-    <span><a href="{root_prefix}data/latest.json">latest.json</a> · <a href="{root_prefix}self_check_report.md">self_check_report.md</a></span>
+    <span><a href="{root_prefix}data/latest.json">latest.json</a> · <a href="{root_prefix}self_check_report.html">self_check_report.html</a> · <a href="{root_prefix}self_check_report.md">md</a></span>
   </footer>
 </body>
 </html>

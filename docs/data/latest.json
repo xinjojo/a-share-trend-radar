@@ -1,6 +1,6 @@
 {
   "report_date": "2026-06-28",
-  "generated_at": "2026-06-28T14:35:23",
+  "generated_at": "2026-06-28T16:29:32",
   "market_temperature": {
     "score": 52.1,
     "risk_preference": "中性",
@@ -45,8 +45,8 @@
       "turnover_pct": 1.37,
       "pe_ttm": 17.71,
       "amplitude_pct": 2.23,
-      "mcap_yi": 623102.3,
-      "float_mcap_yi": 674364.74,
+      "mcap_yi": 623102.31,
+      "float_mcap_yi": 674364.75,
       "pb": 0.0,
       "limit_up": -1.0,
       "limit_down": -1.0,
@@ -2826,10 +2826,10 @@
       "adjustment": "",
       "last_trade_date": "2026-06-26",
       "board_price": 7.79,
-      "quote_price": 0.0,
+      "quote_price": 7.79,
       "current_price": 7.79,
-      "quote_source": "",
-      "price_check_reference": "a-stock-data:eastmoney_clist",
+      "quote_source": "a-stock-data:tencent_quote",
+      "price_check_reference": "a-stock-data:tencent_quote",
       "change_pct": 3.59,
       "amount_yi": 356.766822144,
       "turnover_pct": 12.79,
@@ -2845,7 +2845,7 @@
       "distance_ma20_pct": 23.9360432742,
       "price_check_status": "价格校验通过",
       "price_check_diff_pct": 0.0,
-      "price_check_detail": "不复权close对比a-stock-data:eastmoney_clist，偏差0.00%",
+      "price_check_detail": "不复权close对比a-stock-data:tencent_quote，偏差0.00%",
       "history_source": "fallback:akshare",
       "trend_score": 100.0,
       "trend_status": "多头趋势",
@@ -2922,10 +2922,10 @@
       "adjustment": "",
       "last_trade_date": "2026-06-26",
       "board_price": 8.93,
-      "quote_price": 0.0,
+      "quote_price": 8.93,
       "current_price": 8.93,
-      "quote_source": "",
-      "price_check_reference": "a-stock-data:eastmoney_clist",
+      "quote_source": "a-stock-data:tencent_quote",
+      "price_check_reference": "a-stock-data:tencent_quote",
       "change_pct": 6.95,
       "amount_yi": 33.51954232,
       "turnover_pct": 12.59,
@@ -2941,7 +2941,7 @@
       "distance_ma20_pct": 22.0862670039,
       "price_check_status": "价格校验通过",
       "price_check_diff_pct": 0.0,
-      "price_check_detail": "不复权close对比a-stock-data:eastmoney_clist，偏差0.00%",
+      "price_check_detail": "不复权close对比a-stock-data:tencent_quote，偏差0.00%",
       "history_source": "fallback:akshare",
       "trend_score": 100.0,
       "trend_status": "多头趋势",
@@ -3114,10 +3114,10 @@
       "adjustment": "",
       "last_trade_date": "2026-06-26",
       "board_price": 100.89,
-      "quote_price": 0.0,
+      "quote_price": 100.89,
       "current_price": 100.89,
-      "quote_source": "",
-      "price_check_reference": "a-stock-data:eastmoney_clist",
+      "quote_source": "a-stock-data:tencent_quote",
+      "price_check_reference": "a-stock-data:tencent_quote",
       "change_pct": -3.15,
       "amount_yi": 352.28700903,
       "turnover_pct": 18.77,
@@ -3133,7 +3133,7 @@
       "distance_ma20_pct": 24.3529063748,
       "price_check_status": "价格校验通过",
       "price_check_diff_pct": 0.0,
-      "price_check_detail": "不复权close对比a-stock-data:eastmoney_clist，偏差0.00%",
+      "price_check_detail": "不复权close对比a-stock-data:tencent_quote，偏差0.00%",
       "history_source": "fallback:akshare",
       "trend_score": 100.0,
       "trend_status": "多头趋势",
@@ -3594,10 +3594,10 @@
       "adjustment": "",
       "last_trade_date": "2026-06-26",
       "board_price": 314.9,
-      "quote_price": 0.0,
+      "quote_price": 314.9,
       "current_price": 314.9,
-      "quote_source": "",
-      "price_check_reference": "a-stock-data:eastmoney_clist",
+      "quote_source": "a-stock-data:tencent_quote",
+      "price_check_reference": "a-stock-data:tencent_quote",
       "change_pct": 1.58,
       "amount_yi": 112.8828223673,
       "turnover_pct": 7.18,
@@ -3613,7 +3613,7 @@
       "distance_ma20_pct": 30.0621605435,
       "price_check_status": "价格校验通过",
       "price_check_diff_pct": 0.0,
-      "price_check_detail": "不复权close对比a-stock-data:eastmoney_clist，偏差0.00%",
+      "price_check_detail": "不复权close对比a-stock-data:tencent_quote，偏差0.00%",
       "history_source": "fallback:akshare",
       "trend_score": 100.0,
       "trend_status": "多头趋势",
@@ -4170,10 +4170,10 @@
       "adjustment": "",
       "last_trade_date": "2026-06-26",
       "board_price": 97.67,
-      "quote_price": 0.0,
+      "quote_price": 97.67,
       "current_price": 97.67,
-      "quote_source": "",
-      "price_check_reference": "a-stock-data:eastmoney_clist",
+      "quote_source": "a-stock-data:tencent_quote",
+      "price_check_reference": "a-stock-data:tencent_quote",
       "change_pct": 5.1,
       "amount_yi": 87.9977384778,
       "turnover_pct": 5.31,
@@ -4189,7 +4189,7 @@
       "distance_ma20_pct": 35.1796490063,
       "price_check_status": "价格校验通过",
       "price_check_diff_pct": 0.0,
-      "price_check_detail": "不复权close对比a-stock-data:eastmoney_clist，偏差0.00%",
+      "price_check_detail": "不复权close对比a-stock-data:tencent_quote，偏差0.00%",
       "history_source": "fallback:akshare",
       "trend_score": 100.0,
       "trend_status": "多头趋势",
@@ -4314,10 +4314,10 @@
       "adjustment": "",
       "last_trade_date": "2026-06-26",
       "board_price": 355.0,
-      "quote_price": 0.0,
+      "quote_price": 355.0,
       "current_price": 355.0,
-      "quote_source": "",
-      "price_check_reference": "a-stock-data:eastmoney_clist",
+      "quote_source": "a-stock-data:tencent_quote",
+      "price_check_reference": "a-stock-data:tencent_quote",
       "change_pct": 6.93,
       "amount_yi": 33.55056358,
       "turnover_pct": 2.72,
@@ -4333,7 +4333,7 @@
       "distance_ma20_pct": 47.8202755287,
       "price_check_status": "价格校验通过",
       "price_check_diff_pct": 0.0,
-      "price_check_detail": "不复权close对比a-stock-data:eastmoney_clist，偏差0.00%",
+      "price_check_detail": "不复权close对比a-stock-data:tencent_quote，偏差0.00%",
       "history_source": "fallback:akshare",
       "trend_score": 100.0,
       "trend_status": "多头趋势",
@@ -4786,10 +4786,10 @@
           "adjustment": "",
           "last_trade_date": "2026-06-26",
           "board_price": 7.79,
-          "quote_price": 0.0,
+          "quote_price": 7.79,
           "current_price": 7.79,
-          "quote_source": "",
-          "price_check_reference": "a-stock-data:eastmoney_clist",
+          "quote_source": "a-stock-data:tencent_quote",
+          "price_check_reference": "a-stock-data:tencent_quote",
           "change_pct": 3.59,
           "amount_yi": 356.766822144,
           "turnover_pct": 12.79,
@@ -4805,7 +4805,7 @@
           "distance_ma20_pct": 23.9360432742,
           "price_check_status": "价格校验通过",
           "price_check_diff_pct": 0.0,
-          "price_check_detail": "不复权close对比a-stock-data:eastmoney_clist，偏差0.00%",
+          "price_check_detail": "不复权close对比a-stock-data:tencent_quote，偏差0.00%",
           "history_source": "fallback:akshare",
           "trend_score": 100.0,
           "trend_status": "多头趋势",
@@ -4890,10 +4890,10 @@
           "adjustment": "",
           "last_trade_date": "2026-06-26",
           "board_price": 314.9,
-          "quote_price": 0.0,
+          "quote_price": 314.9,
           "current_price": 314.9,
-          "quote_source": "",
-          "price_check_reference": "a-stock-data:eastmoney_clist",
+          "quote_source": "a-stock-data:tencent_quote",
+          "price_check_reference": "a-stock-data:tencent_quote",
           "change_pct": 1.58,
           "amount_yi": 112.8828223673,
           "turnover_pct": 7.18,
@@ -4909,7 +4909,7 @@
           "distance_ma20_pct": 30.0621605435,
           "price_check_status": "价格校验通过",
           "price_check_diff_pct": 0.0,
-          "price_check_detail": "不复权close对比a-stock-data:eastmoney_clist，偏差0.00%",
+          "price_check_detail": "不复权close对比a-stock-data:tencent_quote，偏差0.00%",
           "history_source": "fallback:akshare",
           "trend_score": 100.0,
           "trend_status": "多头趋势",
@@ -4994,10 +4994,10 @@
           "adjustment": "",
           "last_trade_date": "2026-06-26",
           "board_price": 100.89,
-          "quote_price": 0.0,
+          "quote_price": 100.89,
           "current_price": 100.89,
-          "quote_source": "",
-          "price_check_reference": "a-stock-data:eastmoney_clist",
+          "quote_source": "a-stock-data:tencent_quote",
+          "price_check_reference": "a-stock-data:tencent_quote",
           "change_pct": -3.15,
           "amount_yi": 352.28700903,
           "turnover_pct": 18.77,
@@ -5013,7 +5013,7 @@
           "distance_ma20_pct": 24.3529063748,
           "price_check_status": "价格校验通过",
           "price_check_diff_pct": 0.0,
-          "price_check_detail": "不复权close对比a-stock-data:eastmoney_clist，偏差0.00%",
+          "price_check_detail": "不复权close对比a-stock-data:tencent_quote，偏差0.00%",
           "history_source": "fallback:akshare",
           "trend_score": 100.0,
           "trend_status": "多头趋势",
@@ -5202,10 +5202,10 @@
           "adjustment": "",
           "last_trade_date": "2026-06-26",
           "board_price": 355.0,
-          "quote_price": 0.0,
+          "quote_price": 355.0,
           "current_price": 355.0,
-          "quote_source": "",
-          "price_check_reference": "a-stock-data:eastmoney_clist",
+          "quote_source": "a-stock-data:tencent_quote",
+          "price_check_reference": "a-stock-data:tencent_quote",
           "change_pct": 6.93,
           "amount_yi": 33.55056358,
           "turnover_pct": 2.72,
@@ -5221,7 +5221,7 @@
           "distance_ma20_pct": 47.8202755287,
           "price_check_status": "价格校验通过",
           "price_check_diff_pct": 0.0,
-          "price_check_detail": "不复权close对比a-stock-data:eastmoney_clist，偏差0.00%",
+          "price_check_detail": "不复权close对比a-stock-data:tencent_quote，偏差0.00%",
           "history_source": "fallback:akshare",
           "trend_score": 100.0,
           "trend_status": "多头趋势",
@@ -5934,10 +5934,10 @@
           "adjustment": "",
           "last_trade_date": "2026-06-26",
           "board_price": 8.93,
-          "quote_price": 0.0,
+          "quote_price": 8.93,
           "current_price": 8.93,
-          "quote_source": "",
-          "price_check_reference": "a-stock-data:eastmoney_clist",
+          "quote_source": "a-stock-data:tencent_quote",
+          "price_check_reference": "a-stock-data:tencent_quote",
           "change_pct": 6.95,
           "amount_yi": 33.51954232,
           "turnover_pct": 12.59,
@@ -5953,7 +5953,7 @@
           "distance_ma20_pct": 22.0862670039,
           "price_check_status": "价格校验通过",
           "price_check_diff_pct": 0.0,
-          "price_check_detail": "不复权close对比a-stock-data:eastmoney_clist，偏差0.00%",
+          "price_check_detail": "不复权close对比a-stock-data:tencent_quote，偏差0.00%",
           "history_source": "fallback:akshare",
           "trend_score": 100.0,
           "trend_status": "多头趋势",
@@ -6196,10 +6196,10 @@
           "adjustment": "",
           "last_trade_date": "2026-06-26",
           "board_price": 97.67,
-          "quote_price": 0.0,
+          "quote_price": 97.67,
           "current_price": 97.67,
-          "quote_source": "",
-          "price_check_reference": "a-stock-data:eastmoney_clist",
+          "quote_source": "a-stock-data:tencent_quote",
+          "price_check_reference": "a-stock-data:tencent_quote",
           "change_pct": 5.1,
           "amount_yi": 87.9977384778,
           "turnover_pct": 5.31,
@@ -6215,7 +6215,7 @@
           "distance_ma20_pct": 35.1796490063,
           "price_check_status": "价格校验通过",
           "price_check_diff_pct": 0.0,
-          "price_check_detail": "不复权close对比a-stock-data:eastmoney_clist，偏差0.00%",
+          "price_check_detail": "不复权close对比a-stock-data:tencent_quote，偏差0.00%",
           "history_source": "fallback:akshare",
           "trend_score": 100.0,
           "trend_status": "多头趋势",
@@ -6359,7 +6359,7 @@
         "up_ratio": 0.512195122,
         "distance_ma20_pct": 11.0714658764,
         "score_explanation": "['近 10 日上榜 2 天', '成交额较 20 日均值放大 1.45 倍', '板块内 51.2% 股票上涨', '龙头集中度分 100.0', '距 MA20 偏离 11.1%', '生命周期：高潮期第 2 天']",
-        "created_at": "2026-06-28T14:35:23"
+        "created_at": "2026-06-28T16:29:32"
       },
       {
         "date": "2026-06-28",
@@ -6379,7 +6379,7 @@
         "up_ratio": 0.7419354839,
         "distance_ma20_pct": 24.1638334206,
         "score_explanation": "['近 10 日上榜 2 天', '成交额较 20 日均值放大 1.58 倍', '板块内 74.2% 股票上涨', '龙头集中度分 65.7', '距 MA20 偏离 24.2%', '生命周期：高潮期第 2 天']",
-        "created_at": "2026-06-28T14:35:23"
+        "created_at": "2026-06-28T16:29:32"
       },
       {
         "date": "2026-06-28",
@@ -6399,7 +6399,7 @@
         "up_ratio": 0.7272727273,
         "distance_ma20_pct": 27.0483445861,
         "score_explanation": "['近 10 日上榜 2 天', '成交额较 20 日均值放大 1.35 倍', '板块内 72.7% 股票上涨', '龙头集中度分 100.0', '距 MA20 偏离 27.0%', '生命周期：高潮期第 2 天']",
-        "created_at": "2026-06-28T14:35:23"
+        "created_at": "2026-06-28T16:29:32"
       },
       {
         "date": "2026-06-28",
@@ -6419,7 +6419,7 @@
         "up_ratio": 0.875,
         "distance_ma20_pct": 28.192973036,
         "score_explanation": "['近 10 日上榜 2 天', '成交额较 20 日均值放大 1.61 倍', '板块内 87.5% 股票上涨', '龙头集中度分 100.0', '距 MA20 偏离 28.2%', '生命周期：高潮期第 2 天']",
-        "created_at": "2026-06-28T14:35:23"
+        "created_at": "2026-06-28T16:29:32"
       },
       {
         "date": "2026-06-28",
@@ -6439,7 +6439,7 @@
         "up_ratio": 0.6470588235,
         "distance_ma20_pct": 11.2843642116,
         "score_explanation": "['近 10 日上榜 2 天', '成交额较 20 日均值放大 1.60 倍', '板块内 64.7% 股票上涨', '龙头集中度分 100.0', '距 MA20 偏离 11.3%', '生命周期：高潮期第 2 天']",
-        "created_at": "2026-06-28T14:35:23"
+        "created_at": "2026-06-28T16:29:32"
       },
       {
         "date": "2026-06-28",
@@ -6459,7 +6459,7 @@
         "up_ratio": 0.4482758621,
         "distance_ma20_pct": 11.7573661984,
         "score_explanation": "['近 10 日上榜 2 天', '成交额较 20 日均值放大 1.38 倍', '板块内 44.8% 股票上涨', '龙头集中度分 88.2', '距 MA20 偏离 11.8%', '生命周期：高潮期第 2 天']",
-        "created_at": "2026-06-28T14:35:23"
+        "created_at": "2026-06-28T16:29:32"
       },
       {
         "date": "2026-06-28",
@@ -6479,7 +6479,7 @@
         "up_ratio": 0.5,
         "distance_ma20_pct": 6.9989457221,
         "score_explanation": "['近 10 日上榜 2 天', '成交额较 20 日均值放大 1.22 倍', '板块内 50.0% 股票上涨', '龙头集中度分 100.0', '距 MA20 偏离 7.0%', '生命周期：启动期第 2 天']",
-        "created_at": "2026-06-28T14:35:23"
+        "created_at": "2026-06-28T16:29:32"
       },
       {
         "date": "2026-06-28",
@@ -6499,7 +6499,7 @@
         "up_ratio": 0.4736842105,
         "distance_ma20_pct": 3.7409422277,
         "score_explanation": "['近 10 日上榜 2 天', '成交额较 20 日均值放大 1.71 倍', '板块内 47.4% 股票上涨', '龙头集中度分 100.0', '距 MA20 偏离 3.7%', '生命周期：启动期第 2 天']",
-        "created_at": "2026-06-28T14:35:23"
+        "created_at": "2026-06-28T16:29:32"
       }
     ],
     "next_observations": [
@@ -6511,7 +6511,7 @@
     "history_snapshot": {
       "saved": true,
       "database": "data/radar_history.db",
-      "generated_at": "2026-06-28T14:35:23",
+      "generated_at": "2026-06-28T16:29:32",
       "market_rows": 1,
       "sector_rows": 16,
       "stock_rows": 34,
@@ -6538,7 +6538,7 @@
       "ret_5d": 3.5972525578,
       "ret_10d": 16.0679902374,
       "amount_ratio_20": 1.4460889597,
-      "created_at": "2026-06-28T14:35:23"
+      "created_at": "2026-06-28T16:29:32"
     },
     {
       "report_date": "2026-06-28",
@@ -6555,7 +6555,7 @@
       "ret_5d": 11.4082009874,
       "ret_10d": 21.8953410438,
       "amount_ratio_20": 1.5844644116,
-      "created_at": "2026-06-28T14:35:23"
+      "created_at": "2026-06-28T16:29:32"
     },
     {
       "report_date": "2026-06-28",
@@ -6572,7 +6572,7 @@
       "ret_5d": 14.2365939519,
       "ret_10d": 33.3949349154,
       "amount_ratio_20": 1.3504496682,
-      "created_at": "2026-06-28T14:35:23"
+      "created_at": "2026-06-28T16:29:32"
     },
     {
       "report_date": "2026-06-28",
@@ -6589,7 +6589,7 @@
       "ret_5d": 14.355954514,
       "ret_10d": 37.8250914315,
       "amount_ratio_20": 1.6131158911,
-      "created_at": "2026-06-28T14:35:23"
+      "created_at": "2026-06-28T16:29:32"
     },
     {
       "report_date": "2026-06-28",
@@ -6606,7 +6606,7 @@
       "ret_5d": 3.7758225581,
       "ret_10d": 16.3702089049,
       "amount_ratio_20": 1.6001815022,
-      "created_at": "2026-06-28T14:35:23"
+      "created_at": "2026-06-28T16:29:32"
     },
     {
       "report_date": "2026-06-28",
@@ -6623,7 +6623,7 @@
       "ret_5d": 8.493102311,
       "ret_10d": 8.1554913487,
       "amount_ratio_20": 1.3774856407,
-      "created_at": "2026-06-28T14:35:23"
+      "created_at": "2026-06-28T16:29:32"
     },
     {
       "report_date": "2026-06-28",
@@ -6640,7 +6640,7 @@
       "ret_5d": 3.6126389454,
       "ret_10d": 10.7811906803,
       "amount_ratio_20": 1.2187180796,
-      "created_at": "2026-06-28T14:35:23"
+      "created_at": "2026-06-28T16:29:32"
     },
     {
       "report_date": "2026-06-28",
@@ -6657,7 +6657,7 @@
       "ret_5d": 1.6646778485,
       "ret_10d": 7.3663859232,
       "amount_ratio_20": 1.7110642738,
-      "created_at": "2026-06-28T14:35:23"
+      "created_at": "2026-06-28T16:29:32"
     },
     {
       "report_date": "2026-06-28",
@@ -6674,7 +6674,7 @@
       "ret_5d": 4.7006469466,
       "ret_10d": 9.8536208042,
       "amount_ratio_20": 1.4050421191,
-      "created_at": "2026-06-28T14:35:23"
+      "created_at": "2026-06-28T16:29:32"
     },
     {
       "report_date": "2026-06-28",
@@ -6691,7 +6691,7 @@
       "ret_5d": 15.3005880289,
       "ret_10d": 10.0680593305,
       "amount_ratio_20": 1.5240129597,
-      "created_at": "2026-06-28T14:35:23"
+      "created_at": "2026-06-28T16:29:32"
     }
   ],
   "rotation_migration": [

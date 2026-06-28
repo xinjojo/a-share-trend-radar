@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import html
+import json
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -16,16 +18,23 @@ EMOTION_KEYWORDS = ("昨日", "涨停", "跌停", "连板", "打板", "炸板", 
 
 
 def run_self_check(snapshot: dict[str, Any], output_dir: Path | str) -> Path:
-    """运行构建后自检并生成 Markdown 报告。"""
+    """运行构建后自检并生成 Markdown/HTML 报告。
+
+    自检以最终产物为准：优先读取 output_dir/data/latest.json，并扫描
+    output_dir/index.html，避免中间 DataFrame 正确但最终页面/JSON 失真的情况。
+    """
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
+    final_snapshot = _load_final_snapshot(output_path, snapshot)
     checks = {
-        "数据完整性": _check_data_integrity(snapshot),
-        "页面完整性": _check_page_integrity(snapshot, output_path),
-        "逻辑完整性": _check_logic_integrity(snapshot),
+        "数据完整性": _check_data_integrity(final_snapshot),
+        "页面完整性": _check_page_integrity(final_snapshot, output_path),
+        "逻辑完整性": _check_logic_integrity(final_snapshot),
     }
     report_path = output_path / "self_check_report.md"
     report_path.write_text(_render_report(checks), encoding="utf-8")
+    html_path = output_path / "self_check_report.html"
+    html_path.write_text(_render_html_report(checks), encoding="utf-8")
     return report_path
 
 
@@ -87,6 +96,11 @@ def _check_logic_integrity(snapshot: dict[str, Any]) -> list[dict[str, str]]:
     for rows in groups.values():
         all_group_rows.extend(rows or [])
     sectors = snapshot.get("sectors", []) or []
+    action_by_sector = {
+        str(row.get("board_name", "")).strip(): str(row.get("action", "")).strip()
+        for row in sectors
+        if str(row.get("board_name", "")).strip()
+    }
 
     bad_research = [
         row
@@ -99,6 +113,11 @@ def _check_logic_integrity(snapshot: dict[str, Any]) -> list[dict[str, str]]:
         row
         for row in research
         if str(row.get("matched_action", "")).strip() != "重点研究"
+    ]
+    bad_research_display_action = [
+        row
+        for row in research
+        if not _candidate_display_actions_are_focus(row, action_by_sector)
     ]
     bad_focus = [
         row
@@ -125,6 +144,12 @@ def _check_logic_integrity(snapshot: dict[str, Any]) -> list[dict[str, str]]:
             f"异常 {len(bad_research_parent)} 只。",
             "检查 build_stock_groups，个股不能越过父级主线 Action 单独升级。",
         ),
+        _result(
+            not bad_research_display_action,
+            "可研究候选展示主线 Action 必须全部为重点研究",
+            _bad_display_action_detail(bad_research_display_action, action_by_sector),
+            "检查最终 latest.json/index.html：可研究候选不能展示等回调、只观察/不追或回避主线。",
+        ),
         _result(not bad_focus, "退潮期主线未进入重点研究", f"异常 {len(bad_focus)} 条。", "检查 determine_action 风险阈值。"),
         _result(not emotion_in_main, "短线情绪标签未进入主线排名", f"异常 {len(emotion_in_main)} 条。", "检查 sector_radar._split_concept_and_emotion。"),
         _result(not duplicate_codes, "股票池按代码去重", f"重复代码：{', '.join(duplicate_codes[:10]) if duplicate_codes else '无'}", "检查 build_stock_groups 去重逻辑。"),
@@ -143,6 +168,31 @@ def _proxy_label_ok(sectors: list[dict[str, Any]], snapshot: dict[str, Any]) -> 
     fund_basis = str(snapshot.get("data_basis", {}).get("fund_basis", ""))
     labels = {str(row.get("flow_score_label", "")) for row in sectors}
     return "成交活跃度代理" in fund_basis and any("成交活跃度代理" in label for label in labels)
+
+
+def _candidate_display_actions_are_focus(row: dict[str, Any], action_by_sector: dict[str, str]) -> bool:
+    """最终 JSON 中可研究候选展示出来的主线 Action 必须全部是重点研究。"""
+    names = _display_sector_names(row)
+    actions = [action_by_sector.get(name, "") for name in names]
+    return bool(actions) and all(action == "重点研究" for action in actions)
+
+
+def _display_sector_names(row: dict[str, Any]) -> list[str]:
+    """从最终 JSON 的展示主线字段拆出主线名称。"""
+    text = str(row.get("board_name", ""))
+    return [item.strip() for item in text.split("/") if item.strip()]
+
+
+def _bad_display_action_detail(rows: list[dict[str, Any]], action_by_sector: dict[str, str]) -> str:
+    """展示主线 Action 错误详情。"""
+    if not rows:
+        return "异常 0 只。"
+    items = []
+    for row in rows[:8]:
+        names = _display_sector_names(row)
+        action_text = " / ".join(f"{name}:{action_by_sector.get(name, '未知')}" for name in names)
+        items.append(f"{row.get('code', '')}{row.get('name', '')}({action_text})")
+    return "异常 " + str(len(rows)) + " 只：" + "；".join(items)
 
 
 def _date_result(data_date: str) -> dict[str, str]:
@@ -176,6 +226,17 @@ def _read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="ignore")
 
 
+def _load_final_snapshot(output_dir: Path, fallback: dict[str, Any]) -> dict[str, Any]:
+    """优先从最终 latest.json 读取自检输入。"""
+    latest = output_dir / "data" / "latest.json"
+    if not latest.exists():
+        return fallback
+    try:
+        return json.loads(latest.read_text(encoding="utf-8"))
+    except Exception:
+        return fallback
+
+
 def _render_report(checks: dict[str, list[dict[str, str]]]) -> str:
     """渲染自检 Markdown。"""
     lines = [
@@ -194,3 +255,56 @@ def _render_report(checks: dict[str, list[dict[str, str]]]) -> str:
                 lines.append(f"  - 修复建议：{row['suggestion']}")
         lines.append("")
     return "\n".join(lines)
+
+
+def _render_html_report(checks: dict[str, list[dict[str, str]]]) -> str:
+    """渲染 HTML 自检报告，便于 GitHub Pages 直接打开。"""
+    sections = []
+    for section, rows in checks.items():
+        items = []
+        for row in rows:
+            detail = f"<p>{html.escape(row.get('detail', ''))}</p>" if row.get("detail") else ""
+            suggestion = f"<p><strong>修复建议：</strong>{html.escape(row.get('suggestion', ''))}</p>" if row.get("suggestion") else ""
+            cls = "pass" if row["status"].startswith("✅") else "fail" if row["status"].startswith("❌") else "warn"
+            items.append(
+                f"""
+                <li class="{cls}">
+                  <strong>{html.escape(row['status'])}：{html.escape(row['item'])}</strong>
+                  {detail}
+                  {suggestion}
+                </li>
+                """
+            )
+        sections.append(f"<section><h2>{html.escape(section)}</h2><ul>{''.join(items)}</ul></section>")
+    generated_at = datetime.now().isoformat(timespec="seconds")
+    return f"""<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>A股主线雷达自检报告</title>
+  <style>
+    body {{ margin: 0; padding: 28px; background: #f5f7fb; color: #202631; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif; }}
+    main {{ max-width: 980px; margin: 0 auto; }}
+    section {{ background: #fff; border: 1px solid #d9e0ea; border-radius: 8px; padding: 18px; margin: 16px 0; }}
+    h1 {{ margin: 0 0 6px; }}
+    h2 {{ margin: 0 0 12px; }}
+    ul {{ list-style: none; padding: 0; margin: 0; }}
+    li {{ border-bottom: 1px solid #edf1f6; padding: 11px 0; }}
+    li:last-child {{ border-bottom: 0; }}
+    p {{ margin: 6px 0 0; color: #667085; }}
+    .pass strong {{ color: #0f766e; }}
+    .warn strong {{ color: #b7791f; }}
+    .fail strong {{ color: #b42318; }}
+    .muted {{ color: #667085; }}
+  </style>
+</head>
+<body>
+  <main>
+    <h1>A 股主线雷达自检报告</h1>
+    <p class="muted">生成时间：{html.escape(generated_at)}</p>
+    {''.join(sections)}
+  </main>
+</body>
+</html>
+"""
