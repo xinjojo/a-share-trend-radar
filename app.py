@@ -88,7 +88,7 @@ st.info(ops.get("one_liner", "主线数据不足，先观察数据源状态。")
 
 st.subheader("今日 Action")
 action_cols = st.columns(4)
-for col, label in zip(action_cols, ["重点研究", "等回调", "只观察", "回避"], strict=False):
+for col, label in zip(action_cols, ["重点研究", "等回调", "只观察 / 不追", "回避"], strict=False):
     with col:
         st.markdown(f"**{label}**")
         rows = ops.get("actions", {}).get(label, [])
@@ -242,8 +242,8 @@ else:
         "price_check_status",
         "price_check_detail",
     ]
-    pool_tabs = st.tabs(["可研究候选", "等待回调", "回避 / 不追"])
-    for tab, name in zip(pool_tabs, ["可研究候选", "等待回调", "回避 / 不追"], strict=False):
+    pool_tabs = st.tabs(["可研究候选", "等待回调", "高位观察/不追", "回避"])
+    for tab, name in zip(pool_tabs, ["可研究候选", "等待回调", "高位观察/不追", "回避"], strict=False):
         with tab:
             data = stock_groups.get(name)
             if data is None or data.empty:

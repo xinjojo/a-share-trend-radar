@@ -133,10 +133,10 @@ def determine_action(row: pd.Series | dict, opportunity: float, risk: float, rul
     if lifecycle in {"高潮期", "分歧期"} or risk >= r["wait_pullback_risk_min"]:
         if opportunity >= r["focus_opportunity_min"]:
             return "等回调", "主线仍强，但短期偏离或分歧较高，不适合追高。"
-        return "只观察", "强度不足或结构分歧，等待重新转强。"
+        return "只观察 / 不追", "强度不足或结构分歧，等待重新转强。"
     if opportunity >= r["focus_opportunity_min"] and risk <= r["focus_risk_max"]:
         return "重点研究", "机会分高且风险可控，适合研究回调或确认机会。"
-    return "只观察", "机会和风险不够匹配，等待更清晰信号。"
+    return "只观察 / 不追", "机会和风险不够匹配，等待更清晰信号。"
 
 
 def explain_sector_score(row: pd.Series | dict, item_stats: dict | None = None) -> list[str]:

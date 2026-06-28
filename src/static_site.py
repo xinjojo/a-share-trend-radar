@@ -202,7 +202,8 @@ def render_index_page(snapshot: dict[str, Any]) -> str:
       <div class="stock-columns">
         {_stock_group_panel("可研究候选", stock_groups.get("可研究候选", [])[:16])}
         {_stock_group_panel("等待回调", stock_groups.get("等待回调", [])[:16])}
-        {_stock_group_panel("回避 / 不追", stock_groups.get("回避 / 不追", [])[:16])}
+        {_stock_group_panel("高位观察/不追", stock_groups.get("高位观察/不追", [])[:16])}
+        {_stock_group_panel("回避", stock_groups.get("回避", [])[:16])}
       </div>
     </section>
     <section class="panel">
@@ -263,7 +264,8 @@ def render_stocks_page(snapshot: dict[str, Any]) -> str:
       <h2>股票池排名</h2>
       {_leader_group("可研究候选", stock_groups.get("可研究候选", []))}
       {_leader_group("等待回调", stock_groups.get("等待回调", []))}
-      {_leader_group("回避 / 不追", stock_groups.get("回避 / 不追", []))}
+      {_leader_group("高位观察/不追", stock_groups.get("高位观察/不追", []))}
+      {_leader_group("回避", stock_groups.get("回避", []))}
     </section>
     <section class="stock-list">
       {''.join(_stock_card(stock) for stock in leaders[:40]) if leaders else _empty_state()}
@@ -274,13 +276,13 @@ def render_stocks_page(snapshot: dict[str, Any]) -> str:
 
 def render_lifecycle_page(snapshot: dict[str, Any]) -> str:
     """生命周期页。"""
-    sectors = snapshot["sectors"]
+    sectors = sorted(snapshot["sectors"], key=lambda row: safe_float(row.get("opportunity_score")), reverse=True)
     trends = snapshot.get("operating_summary", {}).get("history_trends", [])
     body = f"""
     <section class="page-title">
       <p class="eyebrow">Lifecycle</p>
       <h1>主线生命周期</h1>
-      <p class="muted">用趋势、量能、赚钱效应和过热风险把主线分为启动期、主升期、高潮期、分歧期、退潮期、修复期，并同步显示机会分、风险分和信心分。</p>
+      <p class="muted">用趋势、量能、赚钱效应和过热风险把主线分为启动期、主升期、高潮期、分歧期、退潮期、修复期，并默认按机会分排序。</p>
     </section>
     <section class="panel">
       <h2>生命周期总览</h2>
@@ -442,7 +444,7 @@ def _action_grid(actions: dict[str, list[dict[str, Any]]]) -> str:
     labels = [
         ("重点研究", "focus"),
         ("等回调", "wait"),
-        ("只观察", "observe"),
+        ("只观察 / 不追", "observe"),
         ("回避", "avoid"),
     ]
     cards = []
@@ -516,7 +518,7 @@ def _action_icon(label: str) -> str:
     return {
         "重点研究": "✅",
         "等回调": "⏳",
-        "只观察": "⚠️",
+        "只观察 / 不追": "⚠️",
         "回避": "🚫",
     }.get(label, "")
 
@@ -637,7 +639,6 @@ def _lifecycle_table(rows: list[dict[str, Any]]) -> str:
             "confidence_score",
             "action",
             "lifecycle_state",
-            "lifecycle_progress",
             "lifecycle_recommendation",
             "ret_5d",
             "ret_10d",
@@ -657,7 +658,6 @@ def _lifecycle_table(rows: list[dict[str, Any]]) -> str:
             "confidence_score": "信心分",
             "action": "Action",
             "lifecycle_state": "生命周期",
-            "lifecycle_progress": "进度",
             "lifecycle_recommendation": "建议",
             "ret_5d": "5日%",
             "ret_10d": "10日%",
@@ -803,7 +803,7 @@ def _sector_card(row: dict[str, Any]) -> str:
 
 def _lifecycle_card(row: dict[str, Any]) -> str:
     """生命周期卡片。"""
-    progress = safe_float(row.get("lifecycle_progress"))
+    opportunity = safe_float(row.get("opportunity_score"))
     explanation_items = "".join(f"<li>{_e(item)}</li>" for item in _explanation_items(row.get("score_explanation")))
     return f"""
     <article class="detail-card">
@@ -811,12 +811,11 @@ def _lifecycle_card(row: dict[str, Any]) -> str:
         <h3>{_e(row.get("board_name", ""))}</h3>
         <span class="badge">{_e(row.get("lifecycle_state", ""))}</span>
       </div>
-      <div class="score-line"><span style="width:{progress}%"></span></div>
+      <div class="score-line"><span style="width:{opportunity}%"></span></div>
       <dl>
-        <div><dt>进度</dt><dd>{_fmt(progress, 1)} / 100</dd></div>
-        <div><dt>建议</dt><dd>{_e(row.get("lifecycle_recommendation", ""))}</dd></div>
         <div><dt>综合分</dt><dd>{_fmt(row.get("score"), 1)}</dd></div>
-        <div><dt>机会 / 风险</dt><dd>{_fmt(row.get("opportunity_score"), 1)} / {_fmt(row.get("risk_score"), 1)}</dd></div>
+        <div><dt>机会分</dt><dd>{_fmt(row.get("opportunity_score"), 1)}</dd></div>
+        <div><dt>风险分</dt><dd>{_fmt(row.get("risk_score"), 1)}</dd></div>
         <div><dt>信心指数</dt><dd>{_fmt(row.get("confidence_score"), 1)}</dd></div>
         <div><dt>今日 Action</dt><dd>{_e(row.get("action", ""))}</dd></div>
         <div><dt>阶段持续</dt><dd>{_fmt(row.get("stage_days"), 0)} 天</dd></div>
@@ -1219,9 +1218,14 @@ h3 { font-size: 17px; }
   margin-top: 4px;
   line-height: 1.45;
 }
-.change-grid, .stock-columns {
+.change-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+.stock-columns {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
   gap: 12px;
 }
 .change-block, .stock-group {

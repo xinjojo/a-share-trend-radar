@@ -237,27 +237,33 @@ def generate_one_liner(
     score = safe_float(market_temperature.get("score"))
     risk = str(market_temperature.get("risk_preference", "未知"))
     top = sectors.head(3) if sectors is not None and not sectors.empty else pd.DataFrame()
-    top_parts = [
-        f"{row.get('board_name', '')}{row.get('lifecycle_state', '')}"
-        for _, row in top.iterrows()
-    ]
+    top_parts = [f"{row.get('board_name', '')}({row.get('lifecycle_state', '')})" for _, row in top.iterrows()]
     top_text = "、".join(top_parts) if top_parts else "主线数据不足"
-    new_text = "，新增 " + "、".join(changes.get("new_sectors", [])[:2]) if changes.get("new_sectors") else ""
-    fading_names = sectors[sectors.get("action", pd.Series(dtype=str)).isin(["回避"])]["board_name"].head(2).tolist() if sectors is not None and not sectors.empty and "action" in sectors.columns else []
-    fading_text = "，回避 " + "、".join(fading_names) if fading_names else ""
+    startup_text = _sector_names(sectors, lifecycle="启动期", limit=3) or "暂无明确启动期"
+    climax_text = _sector_names(sectors, lifecycle="高潮期", limit=3) or "暂无明确高潮期"
+    retreat_text = _sector_names(sectors, lifecycle="退潮期", action="回避", limit=3) or "暂无明确退潮方向"
+    focus_text = _sector_names(sectors, action="重点研究", limit=2)
+    wait_text = _sector_names(sectors, action="等回调", limit=2)
+    avoid_text = _sector_names(sectors, action="回避", limit=2)
+    action_parts = []
+    if focus_text:
+        action_parts.append(f"重点研究 {focus_text}")
+    if wait_text:
+        action_parts.append(f"等回调 {wait_text}")
+    if avoid_text:
+        action_parts.append(f"回避 {avoid_text}")
+    current_action = "；".join(action_parts) if action_parts else "以观察为主"
     research_count = len(stock_groups.get("可研究候选", pd.DataFrame()))
-    if score >= 65:
-        stance = "适合研究回调机会，不适合追高"
-    elif score >= 50:
-        stance = "适合小范围研究强主线，控制追高"
-    else:
-        stance = "以观察和风险控制为主"
-    return f"{top_text}。当前市场温度 {score:.0f}（{risk}）{new_text}{fading_text}；可研究股票 {research_count} 只，{stance}。"
+    return (
+        f"市场温度 {score:.0f}（{risk}），Top3 主线为 {top_text}；"
+        f"启动期关注 {startup_text}，高潮期留意 {climax_text}，退潮方向为 {retreat_text}；"
+        f"当前动作：{current_action}，可研究候选 {research_count} 只。"
+    )
 
 
 def build_today_actions(sectors: pd.DataFrame) -> dict[str, list[dict[str, str]]]:
     """生成今日 Action 四组。"""
-    groups = {"重点研究": [], "等回调": [], "只观察": [], "回避": []}
+    groups = {"重点研究": [], "等回调": [], "只观察 / 不追": [], "回避": []}
     if sectors is None or sectors.empty or "action" not in sectors.columns:
         return groups
     for action in groups:
@@ -277,11 +283,12 @@ def build_today_actions(sectors: pd.DataFrame) -> dict[str, list[dict[str, str]]
 
 
 def build_stock_groups(leader_df: pd.DataFrame, sectors: pd.DataFrame) -> dict[str, pd.DataFrame]:
-    """把股票池拆成可研究候选、等待回调、回避/不追三栏。"""
+    """把股票池拆成可研究候选、等待回调、高位观察/不追、回避四栏。"""
     groups = {
         "可研究候选": [],
         "等待回调": [],
-        "回避 / 不追": [],
+        "高位观察/不追": [],
+        "回避": [],
     }
     if leader_df is None or leader_df.empty:
         return {key: pd.DataFrame() for key in groups}
@@ -302,17 +309,20 @@ def build_stock_groups(leader_df: pd.DataFrame, sectors: pd.DataFrame) -> dict[s
         row = stock.to_dict()
         row["matched_lifecycle"] = " / ".join(sorted({str(item.get("lifecycle_stage", "")) for item in matched if item.get("lifecycle_stage")}))
         row["matched_action"] = " / ".join(sorted({str(item.get("action", "")) for item in matched if item.get("action")}))
-        if sector_retreat or observe in {"趋势破坏", "不适合追"} or distance > 35:
-            row["stock_research_group"] = "回避 / 不追"
-            row["stock_group_reason"] = "所属主线退潮/回避，或个股趋势破坏、距离 MA20 过远。"
+        if sector_retreat or observe == "趋势破坏" or trend == "趋势破坏":
+            row["stock_research_group"] = "回避"
+            row["stock_group_reason"] = "所属主线退潮/回避，或个股趋势破坏。"
+        elif observe in {"高位过热", "不适合追"} or distance > 35:
+            row["stock_research_group"] = "高位观察/不追"
+            row["stock_group_reason"] = "高位过热、不适合追，或距离 MA20 过远。"
         elif observe in RESEARCH_STATUSES and trend in {"多头趋势", "上升趋势"} and distance <= 25:
             row["stock_research_group"] = "可研究候选"
             row["stock_group_reason"] = f"{observe}，趋势未破坏，距 MA20 {distance:.1f}%。"
-        elif sector_strong and trend in {"多头趋势", "上升趋势"} and (distance > 20 or ret20 > 35 or observe in {"等待回调", "高位过热"}):
+        elif sector_strong and trend in {"多头趋势", "上升趋势"} and (distance > 15 or ret20 > 30 or observe == "等待回调"):
             row["stock_research_group"] = "等待回调"
             row["stock_group_reason"] = "主线较强但个股短期偏离较大，等待回调或重新确认。"
         else:
-            row["stock_research_group"] = "回避 / 不追"
+            row["stock_research_group"] = "高位观察/不追"
             row["stock_group_reason"] = "不满足回踩/反包候选条件，先不追。"
         groups[row["stock_research_group"]].append(row)
     return {key: pd.DataFrame(rows) for key, rows in groups.items()}
@@ -396,6 +406,31 @@ def _score_delta_records(df: pd.DataFrame) -> list[dict[str, Any]]:
             }
         )
     return records
+
+
+def _sector_names(
+    sectors: pd.DataFrame,
+    lifecycle: str | None = None,
+    action: str | None = None,
+    limit: int = 3,
+) -> str:
+    """按生命周期或 Action 取主线名称。"""
+    if sectors is None or sectors.empty:
+        return ""
+    out = sectors.copy()
+    masks = []
+    if lifecycle and "lifecycle_state" in out.columns:
+        masks.append(out["lifecycle_state"].astype(str) == lifecycle)
+    if action and "action" in out.columns:
+        masks.append(out["action"].astype(str) == action)
+    if masks:
+        mask = masks[0]
+        for item in masks[1:]:
+            mask = mask | item
+        out = out[mask]
+    if out.empty or "board_name" not in out.columns:
+        return ""
+    return "、".join(out["board_name"].dropna().astype(str).head(limit).tolist())
 
 
 def _top_stock(row: pd.Series | dict) -> str:

@@ -62,12 +62,13 @@ def generate_daily_report(
     lines.extend(_stock_group_lines(stock_groups.get("可研究候选"), limit=10))
 
     lines.extend(["", "## 7. 高位风险池", ""])
-    lines.extend(_stock_group_lines(stock_groups.get("等待回调"), limit=8, empty_text="暂无等待回调标的。"))
+    high_risk = _concat_groups(stock_groups.get("高位观察/不追"), stock_groups.get("等待回调"))
+    lines.extend(_stock_group_lines(high_risk, limit=10, empty_text="暂无高位风险标的。"))
 
     lines.extend(["", "## 8. 退潮/回避方向", ""])
     avoid_sectors = sector_df[sector_df.get("action", pd.Series(dtype=str)) == "回避"] if not sector_df.empty and "action" in sector_df.columns else pd.DataFrame()
     lines.extend(_sector_lines(avoid_sectors.head(8), compact=True))
-    lines.extend(_stock_group_lines(stock_groups.get("回避 / 不追"), limit=8, empty_text="暂无回避股票池。"))
+    lines.extend(_stock_group_lines(stock_groups.get("回避"), limit=8, empty_text="暂无回避股票池。"))
 
     lines.extend(
         [
@@ -117,7 +118,7 @@ def _market_temperature_lines(market_temperature: dict, changes: dict[str, Any],
 def _action_lines(actions: dict[str, list[dict[str, Any]]]) -> list[str]:
     """今日 Action Markdown。"""
     lines = []
-    for label in ["重点研究", "等回调", "只观察", "回避"]:
+    for label in ["重点研究", "等回调", "只观察 / 不追", "回避"]:
         rows = actions.get(label, []) if isinstance(actions, dict) else []
         if not rows:
             lines.append(f"- {label}：暂无。")
@@ -232,6 +233,14 @@ def _filter_research_candidates(df: pd.DataFrame) -> pd.DataFrame:
     if filtered.empty:
         return filtered
     return filtered.sort_values(["research_priority_score", "leader_score", "amount_yi"], ascending=[False, False, False])
+
+
+def _concat_groups(*frames: pd.DataFrame | None) -> pd.DataFrame:
+    """合并多个股票池分组。"""
+    valid = [frame for frame in frames if frame is not None and not frame.empty]
+    if not valid:
+        return pd.DataFrame()
+    return pd.concat(valid, ignore_index=True)
 
 
 def _join_text(items: list[Any] | None) -> str:

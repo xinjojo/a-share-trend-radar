@@ -139,9 +139,14 @@ h3 { font-size: 17px; }
   margin-top: 4px;
   line-height: 1.45;
 }
-.change-grid, .stock-columns {
+.change-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+.stock-columns {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
   gap: 12px;
 }
 .change-block, .stock-group {

@@ -12,6 +12,7 @@ from src.utils import safe_float
 PASS = "✅ 已通过"
 WARN = "⚠️ 需要人工确认"
 FAIL = "❌ 未通过"
+EMOTION_KEYWORDS = ("昨日", "涨停", "跌停", "连板", "打板", "炸板", "晋级", "高标", "情绪")
 
 
 def run_self_check(snapshot: dict[str, Any], output_dir: Path | str) -> Path:
@@ -20,7 +21,7 @@ def run_self_check(snapshot: dict[str, Any], output_dir: Path | str) -> Path:
     output_path.mkdir(parents=True, exist_ok=True)
     checks = {
         "数据完整性": _check_data_integrity(snapshot),
-        "页面完整性": _check_page_integrity(output_path),
+        "页面完整性": _check_page_integrity(snapshot, output_path),
         "逻辑完整性": _check_logic_integrity(snapshot),
     }
     report_path = output_path / "self_check_report.md"
@@ -46,17 +47,25 @@ def _check_data_integrity(snapshot: dict[str, Any]) -> list[dict[str, str]]:
     return rows
 
 
-def _check_page_integrity(output_dir: Path) -> list[dict[str, str]]:
+def _check_page_integrity(snapshot: dict[str, Any], output_dir: Path) -> list[dict[str, str]]:
     """检查关键页面模块是否存在。"""
     index = _read_text(output_dir / "index.html")
     lifecycle = _read_text(output_dir / "lifecycle.html")
     daily = _read_text(output_dir / "daily.html")
+    generated_at = str(snapshot.get("generated_at", ""))
     return [
         _result("今日一句话" in index, "首页有今日一句话", "", "检查 render_index_page。"),
         _result("今日 Action" in index, "首页有今日 Action", "", "检查 render_index_page。"),
         _result("今日变化" in index, "首页有今日变化", "", "检查 render_index_page。"),
         _result("机会分" in lifecycle and "风险分" in lifecycle, "生命周期页有机会分/风险分", "", "检查 render_lifecycle_page。"),
+        _result("进度" not in lifecycle, "生命周期页没有“进度”字段", "", "移除生命周期页 lifecycle_progress 展示，避免退潮期 100/100 误导。"),
         _result("3 分钟摘要" in daily or "3分钟摘要" in daily, "日报页有 3 分钟摘要", "", "在日报开头保留简短摘要说明。"),
+        _result(
+            bool(generated_at) and generated_at in index and generated_at in daily,
+            "日报生成时间与首页一致",
+            f"生成时间：{generated_at}",
+            "检查 render_index_page/render_daily_page 是否使用同一 snapshot.generated_at。",
+        ),
     ]
 
 
@@ -83,6 +92,11 @@ def _check_logic_integrity(snapshot: dict[str, Any]) -> list[dict[str, str]]:
         if row.get("action") == "重点研究"
         and (row.get("lifecycle_state") == "退潮期" or safe_float(row.get("risk_score")) >= 72)
     ]
+    emotion_in_main = [
+        row
+        for row in sectors
+        if any(keyword in str(row.get("board_name", "")) for keyword in EMOTION_KEYWORDS)
+    ]
     codes = [str(row.get("code", "")) for row in all_group_rows if row.get("code")]
     duplicate_codes = sorted({code for code in codes if codes.count(code) > 1})
     proxy_labels_ok = _proxy_label_ok(sectors, snapshot)
@@ -92,6 +106,7 @@ def _check_logic_integrity(snapshot: dict[str, Any]) -> list[dict[str, str]]:
     return [
         _result(not bad_research, "高位/退潮股票未进入可研究候选", f"异常 {len(bad_research)} 只。", "检查 build_stock_groups 分组条件。"),
         _result(not bad_focus, "退潮期主线未进入重点研究", f"异常 {len(bad_focus)} 条。", "检查 determine_action 风险阈值。"),
+        _result(not emotion_in_main, "短线情绪标签未进入主线排名", f"异常 {len(emotion_in_main)} 条。", "检查 sector_radar._split_concept_and_emotion。"),
         _result(not duplicate_codes, "股票池按代码去重", f"重复代码：{', '.join(duplicate_codes[:10]) if duplicate_codes else '无'}", "检查 build_stock_groups 去重逻辑。"),
         _result(proxy_labels_ok, "资金不可用时标注成交活跃度代理", "", "检查 flow_score_label 和 data_basis.fund_basis。"),
         _result(history_message_ok, "无历史数据时明确提示", "", "检查 build_today_changes。"),
