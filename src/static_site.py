@@ -255,8 +255,8 @@ def render_sectors_page(snapshot: dict[str, Any]) -> str:
 
 def render_stocks_page(snapshot: dict[str, Any]) -> str:
     """龙头股票池页。"""
-    leaders = snapshot["leaders"]
     stock_groups = snapshot.get("operating_summary", {}).get("stock_groups", {})
+    final_stocks = _flatten_stock_groups(stock_groups)
     body = f"""
     <section class="page-title">
       <p class="eyebrow">Leader Pool</p>
@@ -272,7 +272,7 @@ def render_stocks_page(snapshot: dict[str, Any]) -> str:
       {_leader_group("回避", stock_groups.get("回避", []))}
     </section>
     <section class="stock-list">
-      {''.join(_stock_card(stock) for stock in leaders[:40]) if leaders else _empty_state()}
+      {''.join(_stock_card(stock) for stock in final_stocks) if final_stocks else _empty_state()}
     </section>
     """
     return _layout("龙头股票池", "stocks", body)
@@ -927,15 +927,17 @@ def _lifecycle_card(row: dict[str, Any]) -> str:
 
 def _stock_card(row: dict[str, Any]) -> str:
     """股票卡片。"""
+    group = row.get("stock_research_group") or row.get("pool_group", "")
     return f"""
-    <article class="detail-card">
+    <article class="detail-card stock-detail-card" data-stock-code="{_e(row.get("code", ""))}" data-stock-group="{_e(group)}">
       <div class="card-title">
         <h3>{_e(row.get("name", ""))} <span>{_e(row.get("code", ""))}</span></h3>
         <span class="badge">{_e(row.get("observe_status", ""))}</span>
       </div>
       <dl>
-        <div><dt>分组</dt><dd>{_e(row.get("pool_group", ""))}</dd></div>
+        <div><dt>分组</dt><dd>{_e(group)}</dd></div>
         <div><dt>所属主线</dt><dd>{_e(row.get("board_name", ""))}</dd></div>
+        <div><dt>主线 Action</dt><dd>{_e(row.get("matched_action", ""))}</dd></div>
         <div><dt>龙头分</dt><dd>{_fmt(row.get("leader_score"), 1)}</dd></div>
         <div><dt>成交额</dt><dd>{_fmt(row.get("amount_yi"), 1)} 亿</dd></div>
         <div><dt>价格口径</dt><dd>{_e(row.get("price_basis", "不复权"))}</dd></div>
@@ -947,6 +949,17 @@ def _stock_card(row: dict[str, Any]) -> str:
       <p class="muted">失效条件：{_e(row.get("invalid_condition", ""))}</p>
     </article>
     """
+
+
+def _flatten_stock_groups(stock_groups: dict[str, list[dict[str, Any]]]) -> list[dict[str, Any]]:
+    """把最终五栏股票池展开，详情卡片只使用最终分组。"""
+    rows: list[dict[str, Any]] = []
+    for group_name in ["可研究候选", "强主线回调观察", "等待回调", "高位观察/不追", "回避"]:
+        for row in stock_groups.get(group_name, []) or []:
+            item = dict(row)
+            item["stock_research_group"] = item.get("stock_research_group") or group_name
+            rows.append(item)
+    return rows
 
 
 def _markdown_to_html(markdown_text: str) -> str:

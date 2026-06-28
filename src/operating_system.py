@@ -38,13 +38,14 @@ def build_operating_system(
     sectors = enrich_operating_scores(sector_df, history_stats=history_stats)
     sectors = sectors.sort_values(["score", "opportunity_score"], ascending=False).reset_index(drop=True)
     sectors["rank"] = range(1, len(sectors) + 1)
+    sectors = _apply_final_action_recommendations(sectors)
     if persist and not sectors.empty:
         save_sector_snapshots(report_date, sectors, market_temperature)
     history = load_sector_snapshots(lookback_days=30)
     changes = build_today_changes(history, sectors, report_date, market_temperature)
     stock_groups = build_stock_groups(leader_df, sectors)
-    one_liner = generate_one_liner(market_temperature, sectors, changes, stock_groups)
     actions = build_today_actions(sectors, stock_groups)
+    one_liner = generate_one_liner(market_temperature, sectors, changes, stock_groups)
     history_snapshot = {}
     if persist:
         try:
@@ -261,14 +262,17 @@ def generate_one_liner(
     startup_text = _sector_names(sectors, lifecycle="启动期", limit=3) or "暂无明确启动期"
     climax_text = _sector_names(sectors, lifecycle="高潮期", limit=3) or "暂无明确高潮期"
     retreat_text = _sector_names(sectors, lifecycle="退潮期", action="回避", limit=3) or "暂无明确退潮方向"
-    focus_text = _sector_names(sectors, action="重点研究", limit=2)
-    wait_text = _sector_names(sectors, action="等回调", limit=2)
-    avoid_text = _sector_names(sectors, action="回避", limit=2)
+    focus_text = _action_names_for_one_liner(sectors, "重点研究", stock_groups, limit=4)
+    wait_text = _action_names_for_one_liner(sectors, "等回调", stock_groups, limit=4)
+    observe_text = _action_names_for_one_liner(sectors, "只观察 / 不追", stock_groups, limit=4)
+    avoid_text = _action_names_for_one_liner(sectors, "回避", stock_groups, limit=4)
     action_parts = []
     if focus_text:
         action_parts.append(f"重点研究 {focus_text}")
     if wait_text:
         action_parts.append(f"等回调 {wait_text}")
+    if observe_text:
+        action_parts.append(f"只观察/不追 {observe_text}")
     if avoid_text:
         action_parts.append(f"回避 {avoid_text}")
     current_action = "；".join(action_parts) if action_parts else "以观察为主"
@@ -478,6 +482,38 @@ def _sector_names(
     if out.empty or "board_name" not in out.columns:
         return ""
     return "、".join(out["board_name"].dropna().astype(str).head(limit).tolist())
+
+
+def _action_names_for_one_liner(
+    sectors: pd.DataFrame,
+    action: str,
+    stock_groups: dict[str, pd.DataFrame],
+    limit: int = 4,
+) -> str:
+    """按今日 Action 同一排序生成一句话里的主线列表。"""
+    if sectors is None or sectors.empty or "action" not in sectors.columns:
+        return ""
+    out = sectors[sectors["action"].astype(str) == action].sort_values(["opportunity_score", "score"], ascending=False).head(limit)
+    if out.empty:
+        return ""
+    candidate_map = _candidate_count_by_sector(stock_groups.get("可研究候选", pd.DataFrame()))
+    names = []
+    for _, row in out.iterrows():
+        name = str(row.get("board_name", ""))
+        if action == "重点研究" and candidate_map.get(name, 0) <= 0:
+            names.append(f"{name}（暂无个股信号）")
+        else:
+            names.append(name)
+    return "、".join(names)
+
+
+def _apply_final_action_recommendations(sectors: pd.DataFrame) -> pd.DataFrame:
+    """页面展示的建议字段统一使用最终 Action，避免旧生命周期建议覆盖。"""
+    if sectors is None or sectors.empty or "action" not in sectors.columns:
+        return sectors
+    out = sectors.copy()
+    out["lifecycle_recommendation"] = out["action"].astype(str)
+    return out
 
 
 def _candidate_count_by_sector(candidate_df: pd.DataFrame | None) -> dict[str, int]:
