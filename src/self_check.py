@@ -155,7 +155,11 @@ def _check_logic_integrity(snapshot: dict[str, Any], output_dir: Path) -> list[d
     bad_index_candidates = _bad_index_candidate_rows(index_candidate_section, all_group_rows, action_by_sector)
     stock_card_mismatches = _stock_card_group_mismatches(stocks_html, all_group_rows)
     lifecycle_action_mismatches = _page_action_recommendation_mismatches(lifecycle_html, action_by_sector)
-    rotation_action_mismatches = _page_action_recommendation_mismatches(rotation_html, action_by_sector)
+    rotation_action_mismatches = _page_action_recommendation_mismatches(
+        rotation_html,
+        action_by_sector,
+        report_date=str(snapshot.get("report_date", "")),
+    )
 
     return [
         _result(not bad_research, "高位/退潮股票未进入可研究候选", f"异常 {len(bad_research)} 只。", "检查 build_stock_groups 分组条件。"),
@@ -413,10 +417,17 @@ def _stock_card_group_mismatches(stocks_html: str, rows: list[dict[str, Any]]) -
     return mismatches
 
 
-def _page_action_recommendation_mismatches(page_html: str, action_by_sector: dict[str, str]) -> list[str]:
+def _page_action_recommendation_mismatches(
+    page_html: str,
+    action_by_sector: dict[str, str],
+    report_date: str | None = None,
+) -> list[str]:
     """检查页面表格中同一行的建议字段是否等于最终 Action。"""
     mismatches = []
     for row_html in re.findall(r"<tr>(.*?)</tr>", page_html, flags=re.S):
+        row_date = _cell_value(row_html, "日期")
+        if report_date and row_date and row_date != report_date:
+            continue
         name = _cell_value(row_html, "主线") or _cell_value(row_html, "板块")
         recommendation = _cell_value(row_html, "建议")
         if not name or not recommendation:
