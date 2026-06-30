@@ -4,5 +4,6 @@ __pycache__/
 .streamlit/
 data/cache/*.pkl
 data/cache/*.log
+data/cache/source_health.json
 data/radar.db
 data/radar_history.db

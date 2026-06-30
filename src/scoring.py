@@ -217,6 +217,10 @@ def score_market_temperature(market_df: pd.DataFrame, index_df: pd.DataFrame) ->
         if "sample_note" in market_df
         else "全市场样本"
     )
+    stale_note = ""
+    if "is_stale_cache" in market_df.columns and bool(market_df["is_stale_cache"].fillna(False).any()):
+        reasons = [str(item) for item in market_df.get("stale_reason", pd.Series(dtype=str)).dropna().unique() if str(item)]
+        stale_note = reasons[0] if reasons else "本次使用上次有效缓存。"
     up_count = int((market_df["change_pct"] > 0).sum())
     down_count = int((market_df["change_pct"] < 0).sum())
     flat_count = total - up_count - down_count
@@ -264,6 +268,8 @@ def score_market_temperature(market_df: pd.DataFrame, index_df: pd.DataFrame) ->
         f"涨停约 {limit_up} 家、跌停约 {limit_down} 家；"
         f"全市场成交额约 {total_amount_yi:,.0f} 亿元，主要指数平均涨跌幅 {index_change:.2f}%。"
     )
+    if stale_note:
+        explanation += f" 数据口径提示：{stale_note}"
     return {
         "score": score,
         "risk_preference": risk,
@@ -274,6 +280,8 @@ def score_market_temperature(market_df: pd.DataFrame, index_df: pd.DataFrame) ->
             "sample_expected_count": expected_count,
             "is_full_market_sample": is_full_market_sample,
             "sample_note": sample_note,
+            "is_stale_cache": bool(stale_note),
+            "stale_reason": stale_note,
             "up_count": up_count,
             "down_count": down_count,
             "flat_count": flat_count,

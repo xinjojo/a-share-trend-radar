@@ -21,10 +21,14 @@ from typing import Any, Callable
 
 import pandas as pd
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from config import (
     CACHE_DIR,
     CACHE_TTL_SECONDS,
+    EM_CIRCUIT_COOLDOWN_SECONDS,
+    EM_FAILURE_THRESHOLD,
     EM_MIN_INTERVAL,
     FULL_MARKET_MIN_COUNT,
     HISTORY_CACHE_TTL_SECONDS,
@@ -53,7 +57,96 @@ CACHE_SCHEMA_VERSION = "2026-06-28-price-basis-and-pool-v1"
 
 EM_SESSION = requests.Session()
 EM_SESSION.headers.update({"User-Agent": UA})
+try:
+    _em_adapter = HTTPAdapter(
+        max_retries=Retry(
+            total=3,
+            connect=3,
+            read=2,
+            backoff_factor=0.6,
+            status_forcelist=[429, 500, 502, 503, 504],
+            allowed_methods=["GET"],
+        )
+    )
+    EM_SESSION.mount("https://", _em_adapter)
+    EM_SESSION.mount("http://", _em_adapter)
+except Exception:
+    pass
 _em_last_call = [0.0]
+SOURCE_HEALTH_PATH = CACHE_DIR / "source_health.json"
+
+
+def _load_source_health() -> dict[str, Any]:
+    """读取数据源健康状态，失败时返回空配置。"""
+    if not SOURCE_HEALTH_PATH.exists():
+        return {}
+    try:
+        return json.loads(SOURCE_HEALTH_PATH.read_text(encoding="utf-8"))
+    except Exception as exc:
+        logger.warning("读取数据源健康状态失败: %s", exc)
+        return {}
+
+
+def _write_source_health(state: dict[str, Any]) -> None:
+    """写入数据源健康状态。"""
+    try:
+        SOURCE_HEALTH_PATH.parent.mkdir(parents=True, exist_ok=True)
+        SOURCE_HEALTH_PATH.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as exc:
+        logger.warning("写入数据源健康状态失败: %s", exc)
+
+
+def eastmoney_circuit_open() -> bool:
+    """判断东财熔断是否仍在冷却期。"""
+    state = _load_source_health().get("eastmoney", {})
+    open_until = safe_float(state.get("open_until"))
+    return open_until > time.time()
+
+
+def eastmoney_circuit_reason() -> str:
+    """返回东财熔断原因。"""
+    state = _load_source_health().get("eastmoney", {})
+    if not eastmoney_circuit_open():
+        return ""
+    return str(state.get("last_error", "东财接口连续失败，临时熔断。"))
+
+
+def eastmoney_recently_failed(window_seconds: int = 15 * 60) -> bool:
+    """判断东财是否刚失败过；刚失败时也跳过同源 fallback。"""
+    state = _load_source_health().get("eastmoney", {})
+    last_failure = safe_float(state.get("last_failure"))
+    return last_failure > 0 and time.time() - last_failure <= window_seconds
+
+
+def _record_eastmoney_success() -> None:
+    """东财请求成功后清理失败计数。"""
+    health = _load_source_health()
+    state = health.get("eastmoney", {})
+    if state.get("failure_count") or state.get("open_until"):
+        health["eastmoney"] = {
+            "failure_count": 0,
+            "open_until": 0,
+            "last_success": time.time(),
+            "last_error": "",
+        }
+        _write_source_health(health)
+
+
+def _record_eastmoney_failure(error: str) -> None:
+    """记录东财失败，连续失败后进入冷却期。"""
+    health = _load_source_health()
+    state = health.get("eastmoney", {})
+    failure_count = safe_int(state.get("failure_count")) + 1
+    open_until = safe_float(state.get("open_until"))
+    if failure_count >= EM_FAILURE_THRESHOLD:
+        open_until = time.time() + EM_CIRCUIT_COOLDOWN_SECONDS
+    health["eastmoney"] = {
+        "failure_count": failure_count,
+        "open_until": open_until,
+        "last_failure": time.time(),
+        "last_error": str(error)[:500],
+    }
+    _write_source_health(health)
 
 
 def em_get(
@@ -64,13 +157,72 @@ def em_get(
     **kwargs: Any,
 ) -> requests.Response:
     """东财统一请求入口：串行限流 + session 复用 + 默认 UA。"""
+    if eastmoney_circuit_open():
+        raise RuntimeError(f"东财接口熔断中：{eastmoney_circuit_reason()}")
     wait = EM_MIN_INTERVAL - (time.time() - _em_last_call[0])
     if wait > 0:
         time.sleep(wait + random.uniform(0.1, 0.45))
+    failure_recorded = False
     try:
-        return EM_SESSION.get(url, params=params, headers=headers, timeout=timeout, **kwargs)
+        resp = EM_SESSION.get(url, params=params, headers=headers, timeout=timeout, **kwargs)
+        if resp.status_code in {403, 429} or resp.status_code >= 500:
+            failure_recorded = True
+            _record_eastmoney_failure(f"HTTP {resp.status_code}: {url}")
+            resp.raise_for_status()
+        if not resp.content:
+            failure_recorded = True
+            _record_eastmoney_failure(f"Empty response: {url}")
+            raise RuntimeError(f"东财空响应: {url}")
+        _record_eastmoney_success()
+        return resp
+    except Exception as exc:
+        if not failure_recorded:
+            _record_eastmoney_failure(str(exc))
+        raise
     finally:
         _em_last_call[0] = time.time()
+
+
+def _read_pickle_cache(cache_path: Path) -> Any:
+    """读取 pickle 缓存，失败时返回 None。"""
+    try:
+        with cache_path.open("rb") as f:
+            return pickle.load(f)
+    except Exception as exc:
+        logger.warning("读取缓存失败 %s: %s", cache_path.name, exc)
+        return None
+
+
+def _is_empty_result(result: Any) -> bool:
+    """判断结果是否为空，避免把空行情覆盖到好缓存。"""
+    if isinstance(result, pd.DataFrame):
+        return result.empty
+    if isinstance(result, (list, tuple, dict, set)):
+        return len(result) == 0
+    return result is None
+
+
+def _mark_stale_cache(result: Any, reason: str) -> Any:
+    """标记缓存兜底结果，方便页面说明数据口径。"""
+    if isinstance(result, pd.DataFrame):
+        out = result.copy()
+        out["is_stale_cache"] = True
+        out["stale_reason"] = reason
+        return out
+    return result
+
+
+def _find_latest_nonempty_cache(func_name: str, exact_path: Path | None = None) -> Any:
+    """寻找同一函数最近一次非空缓存，兼容缓存 key 变更或旧空缓存。"""
+    candidates = sorted(CACHE_DIR.glob(f"{func_name}_*.pkl"), key=lambda path: path.stat().st_mtime, reverse=True)
+    for candidate in candidates:
+        if exact_path and candidate == exact_path:
+            continue
+        cached = _read_pickle_cache(candidate)
+        if cached is not None and not _is_empty_result(cached):
+            logger.warning("%s 使用最近非空缓存 %s", func_name, candidate.name)
+            return cached
+    return None
 
 
 def file_cache(ttl_seconds: int = CACHE_TTL_SECONDS) -> Callable:
@@ -92,25 +244,34 @@ def file_cache(ttl_seconds: int = CACHE_TTL_SECONDS) -> Callable:
             if not refresh and cache_path.exists():
                 age = time.time() - cache_path.stat().st_mtime
                 if age <= ttl_seconds:
-                    try:
-                        with cache_path.open("rb") as f:
-                            return pickle.load(f)
-                    except Exception as exc:
-                        logger.warning("读取缓存失败 %s: %s", cache_path.name, exc)
+                    cached = _read_pickle_cache(cache_path)
+                    if cached is not None and not _is_empty_result(cached):
+                        return cached
+                    logger.warning("%s 命中空缓存，忽略并重新拉取", func.__name__)
 
             try:
                 result = func(*args, **kwargs)
+                if _is_empty_result(result):
+                    cached = _read_pickle_cache(cache_path) if cache_path.exists() else None
+                    if cached is not None and not _is_empty_result(cached):
+                        logger.warning("%s 返回空数据，使用上次有效缓存 %s", func.__name__, cache_path.name)
+                        return _mark_stale_cache(cached, f"{func.__name__} 本次返回空数据，使用上次有效缓存。")
+                    cached = _find_latest_nonempty_cache(func.__name__, exact_path=cache_path)
+                    if cached is not None:
+                        return _mark_stale_cache(cached, f"{func.__name__} 本次返回空数据，使用最近非空缓存。")
+                    return result
                 with cache_path.open("wb") as f:
                     pickle.dump(result, f)
                 return result
             except Exception as exc:
                 logger.exception("%s 执行失败: %s", func.__name__, exc)
                 if cache_path.exists():
-                    try:
-                        with cache_path.open("rb") as f:
-                            return pickle.load(f)
-                    except Exception:
-                        pass
+                    cached = _read_pickle_cache(cache_path)
+                    if cached is not None and not _is_empty_result(cached):
+                        return _mark_stale_cache(cached, f"{func.__name__} 本次执行失败，使用上次有效缓存。")
+                cached = _find_latest_nonempty_cache(func.__name__, exact_path=cache_path)
+                if cached is not None:
+                    return _mark_stale_cache(cached, f"{func.__name__} 本次执行失败，使用最近非空缓存。")
                 return empty_df()
 
         return wrapper
@@ -161,6 +322,23 @@ def tdx_client(market: str = "std"):
         raise RuntimeError(f"所有 mootdx 服务器均不可达: {exc}") from exc
 
 
+def _is_a_share_quote_row(row: pd.Series) -> bool:
+    """过滤通达信股票清单，只保留沪深京主要 A 股。"""
+    code = str(row.get("code", "")).zfill(6)
+    name = str(row.get("name", "")).replace("\x00", "").strip()
+    market = safe_int(row.get("tdx_market"))
+    if not code.isdigit() or len(code) != 6 or not name:
+        return False
+    blocked_words = ("指数", "基金", "ETF", "债", "Ｂ", "B股")
+    if any(word in name for word in blocked_words):
+        return False
+    if market == 1:
+        return code.startswith(("600", "601", "603", "605", "688", "689"))
+    if market == 0:
+        return code.startswith(("000", "001", "002", "003", "300", "301", "430", "830", "831", "832", "833", "834", "835", "836", "837", "838", "839", "870", "871", "872", "873", "920"))
+    return False
+
+
 class AStockDataProvider:
     """A股数据统一入口，页面和业务模块只能通过本类取数。"""
 
@@ -169,6 +347,9 @@ class AStockDataProvider:
 
     def _akshare(self):
         """延迟导入 AKShare，确保它只作为 fallback。"""
+        if eastmoney_circuit_open() or eastmoney_recently_failed():
+            self.logger.warning("东财刚失败或熔断中，跳过 AKShare fallback，避免继续触发同源接口风控。")
+            return None
         try:
             import akshare as ak  # type: ignore
 
@@ -300,7 +481,18 @@ class AStockDataProvider:
 
     @file_cache(ttl_seconds=MARKET_CACHE_TTL_SECONDS)
     def get_market_quotes(self, max_pages: int = MARKET_MAX_PAGES) -> pd.DataFrame:
-        """获取 A 股全市场行情；失败后尝试 AKShare fallback。"""
+        """获取 A 股全市场行情；优先 mootdx 股票清单 + 腾讯行情，东财只作 fallback。"""
+        try:
+            df = self._market_quotes_tencent_mootdx()
+            if not df.empty:
+                df = df.sort_values("amount_yi", ascending=False).drop_duplicates("code").reset_index(drop=True)
+                return self._attach_market_sample_metadata(
+                    df,
+                    source_total=len(df),
+                    source_name="a-stock-data:mootdx_universe+tencent_quote",
+                )
+        except Exception as exc:
+            self.logger.exception("mootdx+腾讯全市场行情失败: %s", exc)
         try:
             fields = (
                 "f2,f3,f4,f5,f6,f8,f9,f10,f12,f13,f14,f15,f16,f17,f18,"
@@ -322,6 +514,79 @@ class AStockDataProvider:
         except Exception as exc:
             self.logger.exception("a-stock-data 全市场行情失败: %s", exc)
         return self._fallback_ak_market_quotes()
+
+    def _market_quotes_tencent_mootdx(self) -> pd.DataFrame:
+        """用 mootdx 获取股票清单，再用腾讯财经批量补实时行情。"""
+        universe = self._mootdx_a_share_universe()
+        if universe.empty:
+            return empty_df()
+        codes = universe["code"].astype(str).drop_duplicates().tolist()
+        raw = self.tencent_quote(codes)
+        rows = []
+        name_map = dict(zip(universe["code"].astype(str), universe["name"].astype(str), strict=False))
+        for code in codes:
+            quote = raw.get(code)
+            if not quote:
+                continue
+            price = safe_float(quote.get("price"))
+            last_close = safe_float(quote.get("last_close"))
+            rows.append(
+                {
+                    "code": code,
+                    "name": quote.get("name") or name_map.get(code, ""),
+                    "price": price,
+                    "change_pct": safe_float(quote.get("change_pct")),
+                    "change_amt": safe_float(quote.get("change_amt")),
+                    "volume": 0.0,
+                    "amount_yuan": safe_float(quote.get("amount_wan")) * 10000,
+                    "amount_yi": safe_float(quote.get("amount_yi")),
+                    "turnover_pct": safe_float(quote.get("turnover_pct")),
+                    "pe_ttm": safe_float(quote.get("pe_ttm")),
+                    "vol_ratio": safe_float(quote.get("vol_ratio")),
+                    "high": safe_float(quote.get("high")),
+                    "low": safe_float(quote.get("low")),
+                    "open": safe_float(quote.get("open")),
+                    "last_close": last_close,
+                    "mcap_yi": safe_float(quote.get("mcap_yi")),
+                    "float_mcap_yi": safe_float(quote.get("float_mcap_yi")),
+                    "pb": safe_float(quote.get("pb")),
+                    "industry": "",
+                    "market_id": eastmoney_market_id(code),
+                    "data_source": "a-stock-data:tencent_quote",
+                    "universe_source": "a-stock-data:mootdx_stocks",
+                    "price_basis": "腾讯实时行情",
+                }
+            )
+        df = pd.DataFrame(rows)
+        if df.empty:
+            return empty_df()
+        return add_limit_flags(df)
+
+    def _mootdx_a_share_universe(self) -> pd.DataFrame:
+        """用通达信股票清单过滤沪深京主要 A 股。"""
+        client = tdx_client()
+        frames = []
+        for market in (0, 1):
+            try:
+                raw = client.stocks(market)
+                if raw is not None and len(raw) > 0:
+                    frame = pd.DataFrame(raw).copy()
+                    frame["tdx_market"] = market
+                    frames.append(frame)
+            except Exception as exc:
+                self.logger.warning("mootdx 股票清单失败 market=%s: %s", market, exc)
+        if not frames:
+            return empty_df(["code", "name"])
+        df = pd.concat(frames, ignore_index=True)
+        if "code" not in df.columns:
+            return empty_df(["code", "name"])
+        df["code"] = df["code"].astype(str).str.zfill(6)
+        if "name" not in df.columns:
+            df["name"] = ""
+        df["name"] = df["name"].astype(str).str.replace("\x00", "", regex=False).str.strip()
+        mask = df.apply(_is_a_share_quote_row, axis=1)
+        out = df.loc[mask, ["code", "name", "tdx_market"]].drop_duplicates("code").reset_index(drop=True)
+        return out
 
     def _fallback_ak_market_quotes(self) -> pd.DataFrame:
         """AKShare 全市场行情兜底。"""
@@ -439,44 +704,45 @@ class AStockDataProvider:
         """腾讯财经批量行情，适合指数和已知个股列表。"""
         if not codes:
             return {}
-        prefixed = [tencent_symbol(code) for code in codes]
-        url = "https://qt.gtimg.cn/q=" + ",".join(prefixed)
-        req = urllib.request.Request(url)
-        req.add_header("User-Agent", "Mozilla/5.0")
-        resp = urllib.request.urlopen(req, timeout=10)
-        data = resp.read().decode("gbk", errors="ignore")
-
         result: dict[str, dict] = {}
-        for line in data.strip().split(";"):
-            if not line.strip() or "=" not in line or '"' not in line:
-                continue
-            key = line.split("=")[0].split("_")[-1]
-            vals = line.split('"')[1].split("~")
-            if len(vals) < 53:
-                continue
-            code = key[2:]
-            result[code] = {
-                "name": vals[1],
-                "price": safe_float(vals[3]),
-                "last_close": safe_float(vals[4]),
-                "open": safe_float(vals[5]),
-                "change_amt": safe_float(vals[31]),
-                "change_pct": safe_float(vals[32]),
-                "high": safe_float(vals[33]),
-                "low": safe_float(vals[34]),
-                "amount_wan": safe_float(vals[37]),
-                "amount_yi": safe_float(vals[37]) / 10000,
-                "turnover_pct": safe_float(vals[38]),
-                "pe_ttm": safe_float(vals[39]),
-                "amplitude_pct": safe_float(vals[43]),
-                "mcap_yi": safe_float(vals[44]),
-                "float_mcap_yi": safe_float(vals[45]),
-                "pb": safe_float(vals[46]),
-                "limit_up": safe_float(vals[47]),
-                "limit_down": safe_float(vals[48]),
-                "vol_ratio": safe_float(vals[49]),
-                "pe_static": safe_float(vals[52]),
-            }
+        symbols = [tencent_symbol(str(code)) for code in codes if normalize_code(str(code))]
+        for start in range(0, len(symbols), 80):
+            prefixed = symbols[start : start + 80]
+            url = "https://qt.gtimg.cn/q=" + ",".join(prefixed)
+            req = urllib.request.Request(url)
+            req.add_header("User-Agent", "Mozilla/5.0")
+            resp = urllib.request.urlopen(req, timeout=10)
+            data = resp.read().decode("gbk", errors="ignore")
+            for line in data.strip().split(";"):
+                if not line.strip() or "=" not in line or '"' not in line:
+                    continue
+                key = line.split("=")[0].split("_")[-1]
+                vals = line.split('"')[1].split("~")
+                if len(vals) < 53:
+                    continue
+                code = key[2:]
+                result[code] = {
+                    "name": vals[1],
+                    "price": safe_float(vals[3]),
+                    "last_close": safe_float(vals[4]),
+                    "open": safe_float(vals[5]),
+                    "change_amt": safe_float(vals[31]),
+                    "change_pct": safe_float(vals[32]),
+                    "high": safe_float(vals[33]),
+                    "low": safe_float(vals[34]),
+                    "amount_wan": safe_float(vals[37]),
+                    "amount_yi": safe_float(vals[37]) / 10000,
+                    "turnover_pct": safe_float(vals[38]),
+                    "pe_ttm": safe_float(vals[39]),
+                    "amplitude_pct": safe_float(vals[43]),
+                    "mcap_yi": safe_float(vals[44]),
+                    "float_mcap_yi": safe_float(vals[45]),
+                    "pb": safe_float(vals[46]),
+                    "limit_up": safe_float(vals[47]),
+                    "limit_down": safe_float(vals[48]),
+                    "vol_ratio": safe_float(vals[49]),
+                    "pe_static": safe_float(vals[52]),
+                }
         return result
 
     @file_cache(ttl_seconds=HISTORY_CACHE_TTL_SECONDS)

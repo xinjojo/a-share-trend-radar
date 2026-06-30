@@ -148,6 +148,13 @@ def _build_board_metrics(board: pd.Series, hist: pd.DataFrame, constituents: pd.
     board_name = str(board.get("board_name", ""))
     enriched = add_moving_averages(hist) if hist is not None and not hist.empty else pd.DataFrame()
     flags = latest_trend_flags(enriched)
+    stale_reasons = []
+    for frame in (pd.DataFrame([board]), hist, constituents):
+        if frame is not None and not frame.empty and "is_stale_cache" in frame.columns and bool(frame["is_stale_cache"].fillna(False).any()):
+            if "stale_reason" in frame.columns:
+                stale_reasons.extend([str(item) for item in frame["stale_reason"].dropna().unique() if str(item)])
+            else:
+                stale_reasons.append("使用上次有效缓存。")
 
     amount_3d = _rolling_sum(enriched, "amount_yi", 3)
     amount_5d = _rolling_sum(enriched, "amount_yi", 5)
@@ -233,6 +240,8 @@ def _build_board_metrics(board: pd.Series, hist: pd.DataFrame, constituents: pd.
         "leader_amount_share": leader_amount_share,
         "top_stocks": top_stocks,
         "data_source": board.get("data_source", ""),
+        "is_stale_cache": bool(stale_reasons),
+        "stale_reason": "；".join(dict.fromkeys(stale_reasons)),
     }
 
 

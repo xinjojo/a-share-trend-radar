@@ -34,9 +34,11 @@ def build_operating_system(
     leader_df: pd.DataFrame,
     report_date: str | None = None,
     persist: bool = True,
+    generated_at: str | None = None,
 ) -> dict[str, Any]:
     """生成首页和日报共用的每日操作系统摘要。"""
     report_date = report_date or today_str()
+    generated_at = generated_at or datetime.now().isoformat(timespec="seconds")
     sector_df = sector_df if sector_df is not None else pd.DataFrame()
     leader_df = leader_df if leader_df is not None else pd.DataFrame()
     previous_history = load_sector_snapshots(lookback_days=30)
@@ -91,6 +93,7 @@ def build_operating_system(
                 sector_df=sectors,
                 stock_groups=stock_groups,
                 actions=actions,
+                generated_at=generated_at,
             )
         except Exception as exc:
             logger.exception("保存 V3 真实快照失败: %s", exc)

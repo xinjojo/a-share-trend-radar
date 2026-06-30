@@ -40,6 +40,7 @@ def build_static_snapshot(
 ) -> dict[str, Any]:
     """运行扫描并生成静态站点。"""
     report_date = report_date or today_str()
+    generated_at = datetime.now().isoformat(timespec="seconds")
     output_path = Path(output_dir)
     assets_dir = output_path / "assets"
     data_dir = output_path / "data"
@@ -54,7 +55,14 @@ def build_static_snapshot(
     sector_pack = build_sector_radar(provider, max_boards=max_boards, include_concepts=include_concepts)
     sector_df = sector_pack["all"]
     leader_df = build_leader_pool(provider, sector_df)
-    ops = build_operating_system(market_temperature, sector_df, leader_df, report_date=report_date, persist=True)
+    ops = build_operating_system(
+        market_temperature,
+        sector_df,
+        leader_df,
+        report_date=report_date,
+        persist=True,
+        generated_at=generated_at,
+    )
     sector_df = ops["sectors"]
     evidence_summary = build_evidence_summary(report_date)
     optimization_report = build_optimization_report(evidence_summary)
@@ -69,7 +77,7 @@ def build_static_snapshot(
 
     snapshot = {
         "report_date": report_date,
-        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "generated_at": generated_at,
         "market_temperature": market_temperature,
         "data_basis": _build_data_basis(report_date, market_temperature, sector_df, leader_df),
         "index_quotes": _records(index_df),
@@ -1231,10 +1239,16 @@ def _build_data_basis(
     ma_basis = _unique_text(leader_df, "ma_basis") or price_basis
     fund_basis = _unique_text(sector_df, "flow_score_label") or "成交活跃度代理评分"
     sample_note = str(metrics.get("sample_note", "全市场样本"))
+    stale_notes = []
+    if metrics.get("is_stale_cache"):
+        stale_notes.append("全市场行情使用上次有效缓存")
+    if _has_stale_cache(sector_df) or _has_stale_cache(leader_df):
+        stale_notes.append("板块/成分股数据源不可用，主线使用上次有效缓存")
+    stale_suffix = "；注意：" + " / ".join(dict.fromkeys(stale_notes)) if stale_notes else ""
     return {
         "data_date": data_date,
         "stock_pool_scope": (
-            f"{sample_note}；龙头池来自强势行业/概念成分股，按股票代码去重并合并多个主线。"
+            f"{sample_note}{stale_suffix}；龙头池来自强势行业/概念成分股，按股票代码去重并合并多个主线。"
         ),
         "price_basis": f"{price_basis} 最新日K收盘价；均线口径：{ma_basis}；实时行情仅用于3%偏差校验。",
         "fund_basis": f"{fund_basis}；真实资金流不可用时不写资金流入，使用成交活跃度代理评分。",
@@ -1251,6 +1265,13 @@ def _unique_text(df: pd.DataFrame | None, column: str) -> str:
         if text and text not in values:
             values.append(text)
     return " / ".join(values)
+
+
+def _has_stale_cache(df: pd.DataFrame | None) -> bool:
+    """判断 DataFrame 是否来自缓存兜底。"""
+    if df is None or df.empty or "is_stale_cache" not in df.columns:
+        return False
+    return bool(df["is_stale_cache"].fillna(False).any())
 
 
 def _collect_sources(*frames: pd.DataFrame | None) -> list[str]:

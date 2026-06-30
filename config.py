@@ -23,6 +23,8 @@ HISTORY_CACHE_TTL_SECONDS = 6 * 60 * 60
 # 遵循 a-stock-data SKILL.md：东财接口串行限流，至少 1 秒加抖动。
 EM_MIN_INTERVAL = 1.05
 REQUEST_TIMEOUT = 15
+EM_FAILURE_THRESHOLD = 3
+EM_CIRCUIT_COOLDOWN_SECONDS = 60 * 60
 
 
 # MVP 默认扫描规模。全市场行情必须覆盖沪深京主要 A 股；东财 clist 单页通常最多 100 条。
