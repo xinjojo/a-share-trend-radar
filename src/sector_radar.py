@@ -51,8 +51,11 @@ def build_sector_radar(
     source_concept_count = len(concept_theme_df) if concept_theme_df is not None else 0
     source_board_count = source_industry_count + source_concept_count
 
-    frames = [industry_df, concept_theme_df]
-    board_df = pd.concat([df for df in frames if df is not None and not df.empty], ignore_index=True)
+    frames = [df for df in [industry_df, concept_theme_df] if df is not None and not df.empty]
+    if not frames:
+        board_df = pd.DataFrame()
+    else:
+        board_df = pd.concat(frames, ignore_index=True)
     if board_df.empty:
         empty = pd.DataFrame()
         return {

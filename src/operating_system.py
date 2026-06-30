@@ -43,6 +43,30 @@ def build_operating_system(
     stats_input = _history_with_current(previous_history, sector_df, report_date)
     history_stats = build_history_stats(stats_input)
     sectors = enrich_operating_scores(sector_df, history_stats=history_stats)
+    if sectors.empty:
+        empty_groups = {
+            "可研究候选": pd.DataFrame(),
+            "强主线回调观察": pd.DataFrame(),
+            "等待回调": pd.DataFrame(),
+            "高位观察/不追": pd.DataFrame(),
+            "回避": pd.DataFrame(),
+        }
+        changes = build_today_changes(previous_history, sectors, report_date, market_temperature)
+        return {
+            "report_date": report_date,
+            "sectors": sectors,
+            "one_liner": "主线数据暂不可用，等待数据源恢复后再更新。",
+            "today_conclusion": ["市场：数据不足", "策略：暂停更新，等待数据源恢复", "重点关注：暂无", "等待：暂无", "回避：暂无"],
+            "why_today": "行业/概念板块数据暂不可用，不能生成可靠主线判断。",
+            "market_explanation": market_explanation(market_temperature, changes),
+            "actions": build_today_actions(sectors, empty_groups),
+            "changes": changes,
+            "stock_groups": empty_groups,
+            "history_trends": pd.DataFrame(),
+            "next_observations": ["数据源不可用时不输出研究方向，等待下一次刷新。"],
+            "history_available": bool(changes.get("history_available")),
+            "history_snapshot": {"saved": False, "message": "主线数据为空，未保存历史快照。"},
+        }
     sectors = sectors.sort_values(["score", "opportunity_score"], ascending=False).reset_index(drop=True)
     sectors["rank"] = range(1, len(sectors) + 1)
     sectors = _apply_final_action_recommendations(sectors)
